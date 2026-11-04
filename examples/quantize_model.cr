@@ -28,7 +28,7 @@ abort "config.json not found in #{model_dir}" unless File.exists?(File.join(mode
 STDERR.puts "Quantizing #{model_dir}..."
 
 Dir.mkdir_p(cache_dir)
-t0 = Time.monotonic
+t0 = Time.instant
 
 sf = SHAInet::HFLoader.open_safetensors(model_dir)
 names = sf.tensor_names.reject { |n| n == "__metadata__" }
@@ -70,6 +70,6 @@ end
 sf.close
 
 File.write(manifest_path, manifest.to_json)
-dt = (Time.monotonic - t0).total_seconds
+dt = (Time.instant - t0).total_seconds
 total_bytes = Dir.children(cache_dir).sum { |f| File.size(File.join(cache_dir, f)) }
 STDERR.puts "Done: #{saved} tensors in #{dt.round(1)}s, #{(total_bytes / 1_073_741_824.0).round(2)} GiB"

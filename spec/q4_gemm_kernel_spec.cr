@@ -137,10 +137,10 @@ describe "Q4 GEMM kernel" do
       dst.sync_from_device! # warm up
       lo = Time::Span::MAX
       3.times do
-        t0 = Time.monotonic
+        t0 = Time.instant
         iters.times { w.gemv_into(xx, dst) }
         dst.sync_from_device!
-        dt = (Time.monotonic - t0) / iters
+        dt = (Time.instant - t0) / iters
         lo = dt if dt < lo
       end
       lo

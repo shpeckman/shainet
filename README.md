@@ -26,6 +26,8 @@ SHAInet (Super Human Artificial Intelligence Network) is a neural network librar
 
 ## Installation
 
+SHAInet requires Crystal **1.22.1** or later.
+
 Add to your `shard.yml`:
 
 ```yaml

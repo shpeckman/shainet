@@ -32,7 +32,7 @@ q_dim = config.num_attention_heads * (config.head_dim || (d // config.num_attent
 Dir.mkdir_p(cache_dir)
 manifest = Hash(String, Hash(String, Int64)).new
 sf = SHAInet::HFLoader.open_safetensors(model_dir)
-t0 = Time.monotonic
+t0 = Time.instant
 
 # Quantize a [in, out] SimpleMatrix to Q4 and write it under `key`, then let it be collected.
 write_q4 = ->(key : String, w : SHAInet::SimpleMatrix) do
@@ -130,7 +130,7 @@ end
 
 File.write(File.join(cache_dir, "manifest.json"), manifest.to_json)
 sf.close
-dt = (Time.monotonic - t0).total_seconds
+dt = (Time.instant - t0).total_seconds
 total = Dir.glob(File.join(cache_dir, "**/*")).select { |f| File.file?(f) }.sum { |f| File.size(f) }
 STDERR.puts "Done: #{manifest.size} Q4 tensors in #{dt.round(1)}s, #{(total / 1_073_741_824.0).round(2)} GiB"
 STDERR.puts "Load with: ./agent #{cache_dir}"

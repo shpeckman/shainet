@@ -1019,7 +1019,7 @@ module SHAInet
       else
         Log.info { "Training started with #{epochs} epochs, #{raw_data.size} samples" }
       end
-      start_time = Time.monotonic
+      start_time = Time.instant
 
       batch_size = stream ? mini_batch_size : mini_batch_size.clamp(1, raw_data.size)
 
@@ -1061,7 +1061,7 @@ module SHAInet
         update_mse
 
         if epoch % log_each == 0
-          elapsed = Time.monotonic - start_time
+          elapsed = Time.instant - start_time
           gpu_stats = SHAInet::CudaMatrix.gpu_memory_stats
           sync_stats = CUDA.fully_available? ? SHAInet::CudaMatrix.sync_stats : nil
 
@@ -1107,7 +1107,7 @@ module SHAInet
         @time_step += 1
       end
 
-      elapsed = Time.monotonic - start_time
+      elapsed = Time.instant - start_time
       Log.info { "Training completed in #{elapsed.total_seconds.round(2)} seconds" }
     end
 
@@ -1362,41 +1362,28 @@ module SHAInet
 
           # Handle transformer layers backward pass with proper gradient reshaping
           if @transformer_layers.present?
-            # For transformers, we need to map gradients from output space back to transformer space
-            # The gradient from output layer is (1 x vocab_size), but transformer expects (seq_len x d_model)
-
-            # Get the transformer's d_model dimension from layer size
             d_model = @transformer_layers.first.size
-            seq_len = 16 # hardcoded for now, should be dynamic
+            seq_len = input_matrix.rows
 
-            if grad.rows == 1 && grad.cols != d_model
-              # We have output gradients (1 x vocab_size), need to transform to (seq_len x d_model)
-              # This requires going through the output layer weights transpose
+            if grad.rows == 1 && (grad.cols != d_model || seq_len > 1)
+              transformed_grad = if grad.cols == d_model
+                                   grad
+                                 else
+                                   output_weights = @output_layers.last.weights
+                                   if grad.cols == output_weights.rows
+                                     if grad.is_a?(CudaMatrix)
+                                       grad * output_weights.as(CudaMatrix).transpose
+                                     else
+                                       grad * output_weights.as(SimpleMatrix).transpose
+                                     end
+                                   else
+                                     mat_klass = grad.is_a?(CudaMatrix) ? CudaMatrix : SimpleMatrix
+                                     mat_klass.zeros(1, d_model)
+                                   end
+                                 end
 
-              # Use appropriate matrix type based on whether grad is CudaMatrix or SimpleMatrix
-              if grad.is_a?(CudaMatrix)
-                output_weights = @output_layers.last.weights.as(CudaMatrix)
-              else
-                output_weights = @output_layers.last.weights.as(SimpleMatrix)
-              end
-
-              # Transform: (1 x vocab_size) * (vocab_size x d_model) -> (1 x d_model)
-              if grad.cols == output_weights.rows
-                if grad.is_a?(CudaMatrix)
-                  transformed_grad = grad * output_weights.as(CudaMatrix).transpose
-                else
-                  transformed_grad = grad * output_weights.as(SimpleMatrix).transpose
-                end
-              else
-                # Fallback: create zero gradients with correct dimensions
-                mat_klass = grad.is_a?(CudaMatrix) ? CudaMatrix : SimpleMatrix
-                transformed_grad = mat_klass.zeros(1, d_model)
-              end
-
-              # Check if we can reuse cached gradient matrix
               if @cached_expanded_grad.nil? || @cached_seq_len != seq_len || @cached_d_model != d_model ||
                  @cached_expanded_grad.not_nil!.class != transformed_grad.class
-                # Create new cached matrix
                 @cached_expanded_grad = if transformed_grad.is_a?(CudaMatrix)
                                           CudaMatrix.zeros(seq_len, d_model)
                                         else
@@ -1406,9 +1393,7 @@ module SHAInet
                 @cached_d_model = d_model
               end
 
-              # Reuse cached matrix - zero only the last row that we'll update
               expanded_grad = @cached_expanded_grad.not_nil!
-              # Zero out only the last row efficiently
               d_model.times do |j|
                 expanded_grad[seq_len - 1, j] = transformed_grad[0, j]
               end

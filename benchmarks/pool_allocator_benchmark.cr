@@ -1,10 +1,18 @@
+# benchmarks/pool_allocator_benchmark.cr
+
 require "../src/shainet"
 
 ROWS  =  256
 COLS  =  256
 COUNT = 1000
 
-puts "CUDA available: #{SHAInet::CUDA.available?}"
+cuda_available = SHAInet::CUDA.fully_available?
+puts "CUDA available: #{cuda_available}"
+
+unless cuda_available
+  puts "Pool allocator benchmark skipped: CUDA unavailable"
+  exit
+end
 
 def allocate(count)
   count.times do
@@ -16,16 +24,16 @@ end
 # Without pooling
 SHAInet::GPUMemory.pool_limit = 0
 SHAInet::GPUMemory.cleanup
-start = Time.monotonic
+start = Time.instant
 allocate(COUNT)
-no_pool = Time.monotonic - start
+no_pool = Time.instant - start
 
 # With pooling
 SHAInet::GPUMemory.pool_limit = COUNT
 SHAInet::GPUMemory.preallocate!(ROWS, COLS, COUNT)
-start = Time.monotonic
+start = Time.instant
 allocate(COUNT)
-with_pool = Time.monotonic - start
+with_pool = Time.instant - start
 
 puts "Allocate #{COUNT} matrices without pool: #{no_pool.total_milliseconds}ms"
 puts "Allocate #{COUNT} matrices with pool: #{with_pool.total_milliseconds}ms"

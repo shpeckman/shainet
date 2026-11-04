@@ -20,7 +20,7 @@ end
 
 describe "training convergence" do
   it "drives XOR error down with adam" do
-    Random::DEFAULT.new_seed(42_u64, 54_u64)
+    Random.thread_default.new_seed(42_u64, 54_u64)
 
     data = [
       [[0.0, 0.0], [0.0]],
@@ -60,7 +60,7 @@ describe "training convergence" do
   end
 
   it "drives error down for a multi-label sigmoid output layer" do
-    Random::DEFAULT.new_seed(1234_u64, 5678_u64)
+    Random.thread_default.new_seed(1234_u64, 5678_u64)
 
     rng = Random.new(1234)
     pairs = Array(Array(Array(Float64))).new

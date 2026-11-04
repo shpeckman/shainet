@@ -1484,7 +1484,7 @@ module AgentDemo
     end
 
     # Longest summary the model may write, and the instruction it gets.
-    SUMMARY_TOKENS = 1024
+    SUMMARY_TOKENS      = 1024
     SUMMARY_INSTRUCTION = "Write a summary of the conversation so far. It will REPLACE the older " \
                           "messages, so it must carry everything still needed to continue: the user's " \
                           "goals and requests, decisions made, every file path read or changed, commands " \
@@ -1755,10 +1755,10 @@ module AgentDemo
       slice = ids.size if slice <= 0
       logits = nil
       i = 0
-      t0 = Time.monotonic
+      t0 = Time.instant
       # Per-layer progress callback
       @net.prefill_progress = ->(layer_idx : Int32, total_layers : Int32) do
-        elapsed = (Time.monotonic - t0).total_seconds
+        elapsed = (Time.instant - t0).total_seconds
         pct = layer_idx * 100 // total_layers
         STDERR.print "\r  prefill layer #{layer_idx}/#{total_layers} (#{pct}%) · #{elapsed.round(0).to_i}s".colorize(:dark_gray)
         STDERR.flush
@@ -1769,7 +1769,7 @@ module AgentDemo
         logits = @net.run(ids[i, n], stealth: true, return_matrix: true).as(SHAInet::SimpleMatrix)
         i += n
         done = already + i
-        elapsed = (Time.monotonic - t0).total_seconds
+        elapsed = (Time.instant - t0).total_seconds
         STDERR.print "\r  prefill #{done}/#{total} tok (#{done * 100 // total}%) · #{elapsed.round(0).to_i}s".colorize(:dark_gray)
         STDERR.flush
         # Prefill is the OTHER long blocking phase, and the one most worth escaping: a cold 60K prefill
@@ -2183,15 +2183,15 @@ ENV["SHAINET_MAX_CONTEXT"] ||= agent_context.to_s
 ENV["SHAINET_KV_DTYPE"] ||= "fp8"
 # A 30B takes about nine minutes here. Without a progress line that is indistinguishable
 # from a hang, and the layer loop is where nearly all of it goes.
-load_started = Time.monotonic
+load_started = Time.instant
 SHAInet::HFLoader.progress = ->(done : Int32, total : Int32) do
-  elapsed = (Time.monotonic - load_started).total_seconds
+  elapsed = (Time.instant - load_started).total_seconds
   eta = done > 0 ? (elapsed / done) * (total - done) : 0.0
   STDERR.print "\r  layer #{done}/#{total} (#{done * 100 // total}%) " \
                "· #{elapsed.round.to_i}s elapsed · ~#{eta.round.to_i}s left".colorize(:dark_gray)
   STDERR.print "\n" if done == total
 end
-t0 = Time.monotonic
+t0 = Time.instant
 # Q4 + MoE offload are the only configuration a large MoE model actually runs in on a
 # single consumer GPU: without them a 30B-A3B does not fit at all. So they are the
 # DEFAULT here rather than opt-in. SHAINET_Q8=1 and SHAINET_MOE_OFFLOAD=0 opt out.
@@ -2217,7 +2217,7 @@ end
 has_moe = net.hidden_layers.any? { |l| l.is_a?(SHAInet::LlamaBlock) && l.as(SHAInet::LlamaBlock).ffn.is_a?(SHAInet::MoEFF) }
 mode = ENV["SHAINET_FP32"]? ? "fp32" : "Q#{bits}"
 mode += " (MoE offload)" if offload && has_moe
-STDERR.puts "Loaded in #{(Time.monotonic - t0).total_seconds.round(1)}s · #{mode} (vocab #{tokenizer.vocab.size})"
+STDERR.puts "Loaded in #{(Time.instant - t0).total_seconds.round(1)}s · #{mode} (vocab #{tokenizer.vocab.size})"
 
 # Size the expert cache to leave headroom for the model + prefill activations.
 # Only relevant for MoE models, where a fraction of experts are active per token and the rest

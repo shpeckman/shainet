@@ -234,7 +234,7 @@ module SHAInet
 
           if gpu_tensor_ranges.size > 0
             pool_size = gpu_tensor_ranges.sum(&.[1])
-            t0 = Time.monotonic
+            t0 = Time.instant
             CUDA.malloc(pointerof(gpu_pool_ptr).as(Pointer(Pointer(Void))), pool_size)
             # Copy each tensor's data from mmap to the pool, packing them contiguously.
             # Build an offset map so load_gguf_weight_device can find each tensor in the pool.
@@ -249,7 +249,7 @@ module SHAInet
               gpu_pool_map[file_off] = pool_offset
               pool_offset += sz
             end
-            dt = (Time.monotonic - t0).total_seconds
+            dt = (Time.instant - t0).total_seconds
             Log.info { "gguf: bulk GPU alloc #{pool_size / (1024*1024)} MB in #{dt.round(2)}s (#{gpu_tensor_ranges.size} tensors)" }
           end
         end

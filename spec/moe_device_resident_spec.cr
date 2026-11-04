@@ -31,7 +31,7 @@ private def with_profile(&)
 end
 
 # Deterministic weights: a fixed pattern, not RNG, so a failure is reproducible
-# and does not depend on suite ordering seeding Random::DEFAULT.
+# and does not depend on suite ordering or global RNG seeding.
 private def fill_pattern!(m : SHAInet::SimpleMatrix, seed : Float64)
   m.rows.times do |i|
     m.cols.times do |j|

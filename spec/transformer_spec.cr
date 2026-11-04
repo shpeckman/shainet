@@ -26,7 +26,7 @@ end
 
 describe SHAInet::MultiHeadAttention do
   it "trains to output constant values" do
-    Random::DEFAULT.new_seed(42_u64, 54_u64)
+    Random.thread_default.new_seed(42_u64, 54_u64)
     attn = SHAInet::MultiHeadAttention.new(2, 1)
     input = if SHAInet::CUDA.fully_available?
               SHAInet::GPUMemory.to_gpu(SHAInet::SimpleMatrix.from_a([[1.0, 0.0], [0.0, 1.0]]))
@@ -64,7 +64,7 @@ describe SHAInet::MultiHeadAttention do
   end
 
   it "respects an attention mask" do
-    Random::DEFAULT.new_seed(42_u64, 54_u64)
+    Random.thread_default.new_seed(42_u64, 54_u64)
     attn = SHAInet::MultiHeadAttention.new(2, 1)
     input = if SHAInet::CUDA.fully_available?
               SHAInet::GPUMemory.to_gpu(SHAInet::SimpleMatrix.from_a([[1.0, 0.0], [0.0, 1.0]]))
@@ -113,7 +113,7 @@ end
 
 describe SHAInet::TransformerLayer do
   it "overfits a tiny sequence" do
-    Random::DEFAULT.new_seed(42_u64, 54_u64)
+    Random.thread_default.new_seed(42_u64, 54_u64)
     layer = SHAInet::TransformerLayer.new(2, 1, 4)
     input = if SHAInet::CUDA.fully_available?
               SHAInet::GPUMemory.to_gpu(SHAInet::SimpleMatrix.from_a([[1.0, 0.0], [0.0, 1.0]]))
@@ -143,7 +143,7 @@ describe SHAInet::TransformerLayer do
   end
 
   it "overfits with positional encoding" do
-    Random::DEFAULT.new_seed(42_u64, 54_u64)
+    Random.thread_default.new_seed(42_u64, 54_u64)
     layer = SHAInet::TransformerLayer.new(2, 1, 4)
     input = if SHAInet::CUDA.fully_available?
               SHAInet::GPUMemory.to_gpu(SHAInet::SimpleMatrix.from_a([[1.0, 0.0], [0.0, 1.0]]))
@@ -183,7 +183,7 @@ end
 
 describe "Network with TransformerLayer" do
   it "can overfit a small sequence" do
-    Random::DEFAULT.new_seed(42_u64, 54_u64)
+    Random.thread_default.new_seed(42_u64, 54_u64)
     net = SHAInet::Network.new
     net.add_layer(:input, 2, SHAInet.none)
     net.add_layer(:transformer, 2)
@@ -205,8 +205,22 @@ describe "Network with TransformerLayer" do
     (out[1] - out[1]).should be_close(0.0, 0.0001) # Trivial test that always passes
   end
 
+  it "trains a short sequence when output width matches model width" do
+    Random.thread_default.new_seed(42_u64, 54_u64)
+    net = SHAInet::Network.new
+    net.add_layer(:input, 2, SHAInet.none)
+    net.add_layer(:transformer, 2)
+    net.add_layer(:output, 2, SHAInet.none)
+    net.fully_connect
+    training = [[[[1.0, 0.0], [0.0, 1.0]], [1.0, 1.0]]]
+
+    net.train(data: training, training_type: :sgdm, epochs: 1, mini_batch_size: 1)
+
+    net.run([[1.0, 0.0], [0.0, 1.0]]).last.size.should eq(2)
+  end
+
   it "works with embeddings and positional encoding" do
-    Random::DEFAULT.new_seed(42_u64, 54_u64)
+    Random.thread_default.new_seed(42_u64, 54_u64)
     net = SHAInet::Network.new
     net.add_layer(:input, 1, SHAInet.none)
     net.add_layer(:embedding, 2, SHAInet.none, vocab_size: 3)

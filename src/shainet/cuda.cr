@@ -1,8 +1,9 @@
-require "log"
+# src/shainet/cuda.cr
+
+require "./cuda_common"
 
 module SHAInet
   module CUDA
-    Log = ::Log.for(self)
     extend self
 
     # :nodoc:
@@ -22,8 +23,6 @@ module SHAInet
 
     @[Link("cublas")]
     lib LibCUBLAS
-      type Handle = Void*
-
       fun cublasCreate_v2(handle : Pointer(Handle)) : Int32
       fun cublasDestroy_v2(handle : Handle) : Int32
       fun cublasSetMathMode(handle : Handle, mode : Int32) : Int32
@@ -51,18 +50,6 @@ module SHAInet
                        b : Void*, btype : Int32, ldb : Int32,
                        beta : Void*, c : Void*, ctype : Int32, ldc : Int32,
                        compute_type : Int32, algo : Int32) : Int32
-    end
-
-    enum MemcpyKind
-      HostToHost     = 0
-      HostToDevice   = 1
-      DeviceToHost   = 2
-      DeviceToDevice = 3
-    end
-
-    enum Operation
-      N = 0
-      T = 1
     end
 
     # Check if CUDA runtime and cuBLAS libraries can be opened.
@@ -331,9 +318,9 @@ module SHAInet
         pointerof(beta), c, ldc)
     end
 
-    CUDA_R_16F         =  2
-    CUDA_R_32F         =  0
-    CUBLAS_COMPUTE_32F = 68
+    CUDA_R_16F          =  2
+    CUDA_R_32F          =  0
+    CUBLAS_COMPUTE_32F  = 68
     CUBLAS_GEMM_DEFAULT = -1
 
     # gemm_tn with half A and B and an fp32 C, accumulated in fp32 on tensor cores. Same layout

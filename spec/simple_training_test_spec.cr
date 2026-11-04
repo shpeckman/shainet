@@ -20,7 +20,7 @@ describe "Simple Matrix Training Test" do
     ]
 
     puts "Network created, starting training..."
-    start_time = Time.monotonic
+    start_time = Time.instant
 
     # Train for just a few epochs
     net.train(
@@ -34,7 +34,7 @@ describe "Simple Matrix Training Test" do
       show_slice: true
     )
 
-    end_time = Time.monotonic
+    end_time = Time.instant
     duration = end_time - start_time
     puts "Training completed in #{duration.total_seconds} seconds"
 

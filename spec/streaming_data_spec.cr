@@ -20,7 +20,7 @@ describe SHAInet::StreamingData do
   end
 
   it "reads tokenized data and reshuffles each epoch" do
-    Random::DEFAULT.new_seed(42_u64, 13_u64)
+    Random.thread_default.new_seed(42_u64, 13_u64)
     File.open("/tmp/stream_tok.txt", "w") do |f|
       f.puts "[[[1]], [2]]"
       f.puts "[[[3]], [4]]"

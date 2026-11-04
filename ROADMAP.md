@@ -16,8 +16,33 @@ SHAInet already provides:
 
 The roadmap prioritizes reusable numerical and tensor infrastructure, training breadth, general architectures, and domain utilities over additional model-specific inference plumbing.
 
+## Stage 0 baseline: 2026-11-05
+
+Baseline rerun in the post-Stage 0 working tree based on commit `2e584999e6c4d4399bdfe4fd295d1b31f2c48034`, on x86_64 Linux with 16 logical CPUs, Crystal 1.22.1, and LLVM 22.1.3. Benchmark commands used the default non-release, CUDA-disabled configuration. No NVIDIA command-line tooling or built `libshainet*.so` libraries were present.
+
+### Spec and target checks
+
+- `crystal spec --error-on-warnings`: **466 examples, 0 failures, 0 errors, 159 pending.**
+- `devtool cr check` passed without warnings for all four benchmarks and all twelve examples.
+- `crystal build src/shainet.cr --no-codegen -Denable_cuda --error-on-warnings`: passed.
+- `devtool cr docs`: passed with 90 documented types.
+
+### Benchmark suite
+
+Each benchmark ran serially with `devtool cr run <path>` to avoid timing contention. Values below are single-run baseline measurements, not statistically stabilized performance claims.
+
+| Benchmark | Result | Baseline outcome |
+|---|---|---|
+| `benchmarks/batch_training_benchmark.cr` | Passed | Two epochs over 50 samples: mini-batch 1 took **6.151486 ms**; mini-batch 50 took **3.933866 ms**. |
+| `benchmarks/matrix_benchmark.cr` | Passed with GPU skips | 512×512 CPU matrix multiply: **1700.757424 ms**; CPU ReLU: **4.721527 ms**. GPU sections skipped because CUDA was unavailable. |
+| `benchmarks/pool_allocator_benchmark.cr` | Passed with CUDA skip | Exited cleanly without timings because the pool allocator benchmark requires CUDA. |
+| `benchmarks/transformer_training_benchmark.cr` | Passed with GPU skip | CPU epochs took **0.819439 ms**, **0.652894 ms**, and **0.695045 ms**; reported memory was 0 MB. GPU run skipped because CUDA was unavailable. |
+
+Before Stage 0, all four benchmarks failed before reporting timings. The repaired suite now provides CPU measurements and explicit CUDA skips; GPU performance remains unmeasured in this environment.
+
 ## Engineering principles
 
+- Target Crystal 1.22.1 or later; do not maintain compatibility with older Crystal releases.
 - Keep public APIs idiomatic Crystal and add no new runtime dependencies.
 - Preserve MIT compatibility. Follow the provenance rules below for every adapted algorithm.
 - Implement scalar references and correctness specs before optimized kernels.

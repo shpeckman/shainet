@@ -69,7 +69,7 @@ describe "lazy gradient buffers" do
     # they are what caught this change breaking update_weights. What is asserted
     # here is this change's own contract, that the buffer materializes and receives
     # accumulated values.
-    Random::DEFAULT.new_seed(42_u64, 54_u64)
+    Random.thread_default.new_seed(42_u64, 54_u64)
 
     net = SHAInet::Network.new
     net.add_layer(:input, 2)

@@ -38,11 +38,11 @@ module SHAInet
     # Time a phase. Returns the block's value either way.
     def self.measure(phase : String, &)
       return yield unless enabled?
-      t0 = Time.monotonic
+      t0 = Time.instant
       begin
         yield
       ensure
-        record(phase, (Time.monotonic - t0).total_nanoseconds.to_i64)
+        record(phase, (Time.instant - t0).total_nanoseconds.to_i64)
       end
     end
 
