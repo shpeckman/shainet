@@ -121,6 +121,39 @@ net.train(data: data,
 puts net.run([0, 1])
 ```
 
+### Numerical utilities
+
+Stable softmax, log-softmax, fused softmax cross-entropy, modern activations, matrix reductions, and reproducible initializers are available through the SHAInet namespace and `SimpleMatrix`:
+
+```crystal
+logits = [1.0, 2.0, 3.0]
+probs = SHAInet.softmax(logits)
+result = SHAInet.softmax_cross_entropy(logits, [0.0, 0.0, 1.0])
+result[:value]      # loss
+result[:derivative] # gradient with respect to logits
+
+weights = SHAInet::SimpleMatrix.new(128, 256).xavier_uniform!(Random.new(42))
+row_sums = weights.sum(1) # axis 0 reduces columns; axis 1 reduces rows
+
+net = SHAInet::Network.new
+net.add_layer(:input, 4)
+net.add_layer(:hidden, 8, SHAInet.gelu)
+net.add_layer(:output, 1, SHAInet.none)
+net.fully_connect
+```
+
+Additional activations provide `gelu_tanh`, `silu`, `elu`, `mish`, and `softplus`. Matrix GLU/SiTU-GLU, Huber, smooth-L1, KL divergence, focal loss, label smoothing, and L1/L2 regularization include explicit value/gradient contracts where applicable. Empty and non-finite math inputs raise `ArgumentError` where documented.
+
+Sampling supports top-k, top-p, min-p, seeded randomness, sparse logit bias, and repetition/frequency/presence penalties:
+
+```crystal
+logits = SHAInet::SimpleMatrix.from_a([[1.0, 2.0, 3.0]])
+sampler = SHAInet::Sampler.new(top_k: 40, top_p: 0.9, min_p: 0.05,
+  frequency_penalty: 0.1, rng: Random.new(42))
+sampler.apply_logit_bias!(logits, {2 => 0.5})
+next_id = sampler.sample(logits)
+```
+
 ### Load a GGUF model (Ollama blob or `.gguf` file)
 
 Point `HFLoader.load` at an Ollama model name, a blob, or a `.gguf` file. Q4_K and

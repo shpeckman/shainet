@@ -18,16 +18,30 @@ module SHAInet
   class Sampler
     property temperature : Float64
     property top_k : Int32
+    property top_p : Float64
+    property min_p : Float64
     property repetition_penalty : Float64
+    property frequency_penalty : Float64
+    property presence_penalty : Float64
     property rng : Random
 
     @ids : Array(Int32)
     @vals : Array(Float64)
 
     def initialize(@temperature : Float64 = 1.0, @top_k : Int32 = 40,
-                   @repetition_penalty : Float64 = 1.0, @rng : Random = Random.new)
+                   @repetition_penalty : Float64 = 1.0, @top_p : Float64 = 1.0,
+                   @min_p : Float64 = 0.0, @frequency_penalty : Float64 = 0.0,
+                   @presence_penalty : Float64 = 0.0, @rng : Random = Random.new)
       raise ArgumentError.new("top_k must be >= 1") unless @top_k >= 1
-      raise ArgumentError.new("temperature must be > 0") unless @temperature > 0.0
+      raise ArgumentError.new("temperature must be finite and > 0") unless @temperature.finite? && @temperature > 0.0
+      raise ArgumentError.new("top_p must be in (0, 1]") unless @top_p.finite? && 0.0 < @top_p <= 1.0
+      raise ArgumentError.new("min_p must be in [0, 1]") unless @min_p.finite? && 0.0 <= @min_p <= 1.0
+      unless @repetition_penalty.finite? && @repetition_penalty > 0.0
+        raise ArgumentError.new("repetition_penalty must be finite and > 0")
+      end
+      unless @frequency_penalty.finite? && @presence_penalty.finite?
+        raise ArgumentError.new("frequency and presence penalties must be finite")
+      end
       # Reused across calls; capacity fixed at top_k so no per-token growth.
       @ids = Array(Int32).new(@top_k)
       @vals = Array(Float64).new(@top_k)
@@ -77,11 +91,61 @@ module SHAInet
       end
     end
 
-    # Sample a token id from a logits row using temperature + top-k softmax.
-    #
-    # Selection is an O(vocab) partial selection into a sorted k-buffer (no full
-    # sort). NaN logits are never selected. With `top_k == 1` this is equivalent
-    # to greedy. Uses the instance `rng` so callers can seed for determinism.
+    # Adds sparse token-id biases in place.
+    # Raises `ArgumentError` for out-of-range ids or non-finite bias values.
+    def apply_logit_bias!(logits : SimpleMatrix, bias : Hash(Int32, Float64),
+                          row : Int32 = logits.rows - 1) : Nil
+      cols = logits.cols
+      ptr = logits.data.to_unsafe + row.to_i64 * cols
+      bias.each do |id, value|
+        raise ArgumentError.new("logit bias token id out of range: #{id}") unless 0 <= id < cols
+        raise ArgumentError.new("logit bias must be finite") unless value.finite?
+        ptr[id] = (ptr[id] + value).to_f32
+      end
+    end
+
+    # Applies frequency and presence penalties to unique ids in the recent window.
+    # Positive values discourage tokens; negative values encourage them.
+    def apply_frequency_presence_penalties!(logits : SimpleMatrix, recent_ids : Array(Int32),
+                                            window : Int32 = recent_ids.size,
+                                            row : Int32 = logits.rows - 1) : Nil
+      return if @frequency_penalty == 0.0 && @presence_penalty == 0.0
+      cols = logits.cols
+      ptr = logits.data.to_unsafe + row.to_i64 * cols
+      n = recent_ids.size
+      start = n - window
+      start = 0 if start < 0
+      i = start
+      while i < n
+        id = recent_ids.unsafe_fetch(i)
+        previous = start
+        seen = false
+        while previous < i
+          if recent_ids.unsafe_fetch(previous) == id
+            seen = true
+            break
+          end
+          previous += 1
+        end
+        unless seen
+          count = 1
+          following = i + 1
+          while following < n
+            count += 1 if recent_ids.unsafe_fetch(following) == id
+            following += 1
+          end
+          if 0 <= id < cols
+            penalty = @frequency_penalty * count + @presence_penalty
+            ptr[id] = (ptr[id] - penalty).to_f32
+          end
+        end
+        i += 1
+      end
+    end
+
+    # Samples a token id using temperature, top-k, top-p, and min-p filtering.
+    # Non-finite logits are excluded; ties retain ascending token-id order.
+    # Raises `ArgumentError` when no finite logit is available.
     def sample(logits : SimpleMatrix, row : Int32 = logits.rows - 1) : Int32
       cols = logits.cols
       ptr = logits.data.to_unsafe + row.to_i64 * cols
@@ -97,7 +161,7 @@ module SHAInet
       j = 0
       while j < cols
         v = ptr[j].to_f64 / t
-        unless v.nan?
+        if v.finite?
           sz = vals.size
           if sz < k
             pos = vals.bsearch_index { |x| x < v } || sz
@@ -115,14 +179,13 @@ module SHAInet
       end
 
       szk = vals.size
-      return 0 if szk == 0 # all-NaN row; nothing to sample
+      raise ArgumentError.new("no finite logits available to sample") if szk == 0
 
       # Buffers are stable now (no more insert/pop) — take raw pointers.
       vp = vals.to_unsafe
       ip = ids.to_unsafe
 
-      # Softmax over the selected logits, reusing `vals` to hold exp values.
-      max_val = vp[0] # descending order, so element 0 is the max
+      max_val = vp[0]
       sum = 0.0
       i = 0
       while i < szk
@@ -131,14 +194,46 @@ module SHAInet
         sum += e
         i += 1
       end
-      inv_sum = 1.0 / sum
-
-      # Inverse-CDF sample.
-      r = @rng.rand
-      cumulative = 0.0
-      best_id = ip[szk - 1]
       i = 0
       while i < szk
+        vp[i] = vp[i] / sum
+        i += 1
+      end
+
+      limit = szk
+      if @min_p > 0.0
+        threshold = @min_p * vp[0]
+        i = 0
+        while i < szk && vp[i] >= threshold
+          i += 1
+        end
+        limit = i
+      end
+
+      if @top_p < 1.0
+        cumulative = 0.0
+        i = 0
+        while i < limit
+          cumulative += vp[i]
+          i += 1
+          break if cumulative >= @top_p
+        end
+        limit = i
+      end
+
+      sum = 0.0
+      i = 0
+      while i < limit
+        sum += vp[i]
+        i += 1
+      end
+      inv_sum = 1.0 / sum
+
+      r = @rng.rand
+      cumulative = 0.0
+      best_id = ip[limit - 1]
+      i = 0
+      while i < limit
         cumulative += vp[i] * inv_sum
         if r <= cumulative
           best_id = ip[i]

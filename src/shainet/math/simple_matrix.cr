@@ -263,11 +263,17 @@ module SHAInet
       result
     end
 
-    # Apply softmax to each row in-place.
+    # Applies stable softmax independently to each row in place.
+    # Raises `ArgumentError` for zero columns or any non-finite value.
     def softmax_rows!
+      raise ArgumentError.new("softmax_rows! requires at least one column") if @cols == 0
       @rows.times do |i|
         row_max = -Float64::INFINITY
-        @cols.times { |j| row_max = Math.max(row_max, self[i, j]) }
+        @cols.times do |j|
+          value = self[i, j]
+          raise ArgumentError.new("softmax_rows! requires finite values") unless value.finite?
+          row_max = value if value > row_max
+        end
 
         row_sum = 0.0
         @cols.times do |j|

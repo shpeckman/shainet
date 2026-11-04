@@ -40,19 +40,25 @@ module SHAInet
   # # Activation functions # #
 
   def self._sigmoid(value : GenNum) : Float64 # Output range (0..1)
-    (1.0/(1.0 + Math::E**(-value))).to_f64
+    x = value.to_f64
+    if x >= 0.0
+      1.0 / (1.0 + Math.exp(-x))
+    else
+      e = Math.exp(x)
+      e / (1.0 + e)
+    end
   end
 
   def self._bp_sigmoid(value : GenNum) : Float64 # Output range (-1..1)
-    ((1.0 - Math::E**(-value))/(1.0 + Math::E**(-value))).to_f64
+    Math.tanh(value.to_f64 / 2.0)
   end
 
   def self._log_sigmoid(value : GenNum) : Float64 # Output range (0..1)
-    ((Math::E**(value))/(1.0 + Math::E**(value))).to_f64
+    _sigmoid(value)
   end
 
   def self._tanh(value : GenNum) : Float64 # Output range (-1..1)
-    ((Math::E**(value) - Math::E**(-value))/(Math::E**(value) + Math::E**(-value))).to_f64
+    Math.tanh(value.to_f64)
   end
 
   def self._relu(value : GenNum) # Output range (0..inf)
@@ -71,12 +77,26 @@ module SHAInet
     end
   end
 
+  # Returns normalized exponentials of *array*.
+  # Raises `ArgumentError` for empty input or any non-finite value.
   def self.softmax(array : Array(GenNum)) : Array(Float64)
-    out_array = Array(Float64).new(array.size) { 0.0 }
-    exp_sum = Float64.new(0.0)
-    array.each { |value| exp_sum += Math::E**(value) }
-    array.size.times { |i| out_array[i] += (Math::E**array[i])/exp_sum }
-    out_array
+    raise ArgumentError.new("softmax requires non-empty input") if array.empty?
+    max = -Float64::INFINITY
+    array.each do |value|
+      x = value.to_f64
+      raise ArgumentError.new("softmax requires finite values") unless x.finite?
+      max = x if x > max
+    end
+
+    out = Array(Float64).new(array.size, 0.0)
+    sum = 0.0
+    array.each_with_index do |value, i|
+      e = Math.exp(value.to_f64 - max)
+      out[i] = e
+      sum += e
+    end
+    out.map! { |value| value / sum }
+    out
   end
 
   # The input array in this case has to be the output array of the softmax function
@@ -86,33 +106,41 @@ module SHAInet
     out_array
   end
 
-  # Not working yet, do not use
+  # Returns natural logarithms of the softmax probabilities of *array*.
+  # Raises `ArgumentError` for empty input or any non-finite value.
   def self.log_softmax(array : Array(GenNum)) : Array(Float64)
-    out_array = Array(Float64).new(array.size) { 0.0 }
-    m = array.max # Max exponent from input array
-    exp_sum = Float64.new(0.0)
-    array.each { |value| exp_sum += Math::E**(value - m) }
+    raise ArgumentError.new("log_softmax requires non-empty input") if array.empty?
+    max = -Float64::INFINITY
+    array.each do |value|
+      x = value.to_f64
+      raise ArgumentError.new("log_softmax requires finite values") unless x.finite?
+      max = x if x > max
+    end
 
-    array.size.times { |i| out_array[i] = (Math::E**(array[i] - m - Math.log(exp_sum, 10))) }
-    out_array
+    sum = 0.0
+    array.each { |value| sum += Math.exp(value.to_f64 - max) }
+    log_sum = Math.log(sum)
+    array.map { |value| value.to_f64 - max - log_sum }
   end
 
   # # Derivatives of activation functions # #
 
   def self._sigmoid_prime(value : GenNum) : Float64
-    _sigmoid(value)*(1.0 - _sigmoid(value)).to_f64
+    s = _sigmoid(value)
+    s * (1.0 - s)
   end
 
   def self._bp_sigmoid_prime(value : GenNum) : Float64
-    (2*Math::E**(value)/(Math::E**(value) + 1)**2).to_f64
+    s = _bp_sigmoid(value)
+    0.5 * (1.0 - s * s)
   end
 
   def self._log_sigmoid_prime(value : GenNum) : Float64
-    (Math::E**(value)/(Math::E**(value) + 1)**2).to_f64
+    _sigmoid_prime(value)
   end
 
   def self._tanh_prime(value : GenNum) : Float64
-    (1.0 - _tanh(value)**2).to_f64
+    1.0 - _tanh(value)**2
   end
 
   def self._relu_prime(value : GenNum) : Float64
@@ -244,12 +272,27 @@ module SHAInet
     end
   end
 
+  # Returns a matrix with stable softmax applied independently to each row.
   def self.softmax_rows(m : SimpleMatrix)
+    m.clone.softmax_rows!
+  end
+
+  # Returns natural log-softmax values independently for each matrix row.
+  # Raises `ArgumentError` for zero columns or any non-finite value.
+  def self.log_softmax_rows(m : SimpleMatrix)
+    raise ArgumentError.new("log_softmax_rows requires at least one column") if m.cols == 0
     result = SimpleMatrix.new(m.rows, m.cols)
     m.rows.times do |i|
+      max = -Float64::INFINITY
+      m.cols.times do |j|
+        value = m[i, j]
+        raise ArgumentError.new("log_softmax_rows requires finite values") unless value.finite?
+        max = value if value > max
+      end
       sum = 0.0
-      m.cols.times { |j| sum += Math.exp(m[i, j]) }
-      m.cols.times { |j| result[i, j] = Math.exp(m[i, j]) / sum }
+      m.cols.times { |j| sum += Math.exp(m[i, j] - max) }
+      log_sum = Math.log(sum)
+      m.cols.times { |j| result[i, j] = m[i, j] - max - log_sum }
     end
     result
   end

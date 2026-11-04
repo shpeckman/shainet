@@ -58,33 +58,33 @@ Establish reliable numerical primitives and fill low-cost, high-value API gaps b
 
 ### Numerical correctness
 
-- [ ] Make array and matrix softmax overflow-resistant through max subtraction.
-- [ ] Replace the broken log-softmax with a stable implementation using the log-sum-exp form.
-- [ ] Add multiclass and fused softmax cross-entropy with clear probability, logit, target, and reduction conventions.
-- [ ] Define behavior for empty inputs, non-finite values, zero denominators, and invalid shapes.
-- [ ] Add full and matrix-axis reductions: sum, mean, variance, standard deviation, min/max, argmin/argmax, L1/L2 norms, and cumulative sum.
+- [x] Make array and matrix softmax overflow-resistant through max subtraction.
+- [x] Replace the broken log-softmax with a stable implementation using the log-sum-exp form.
+- [x] Add multiclass and fused softmax cross-entropy with clear probability, logit, target, and reduction conventions.
+- [x] Define behavior for empty inputs, non-finite values, zero denominators, and invalid shapes.
+- [x] Add full and matrix-axis reductions: sum, mean, variance, standard deviation, min/max, argmin/argmax, L1/L2 norms, and cumulative sum.
 
 ### Activations and losses
 
-- [ ] Add first-class GELU (erf and tanh forms), SiLU/Swish, ELU, Mish, and Softplus, including derivatives where the activation API requires them.
-- [ ] Add reusable GLU and SiTU-GLU primitives after tensor slicing support is sufficient.
-- [ ] Add Huber/smooth-L1, KL divergence, focal loss, and label smoothing.
-- [ ] Add reusable L1/L2 regularization terms without duplicating optimizer weight decay.
+- [x] Add first-class GELU (erf and tanh forms), SiLU/Swish, ELU, Mish, and Softplus, including derivatives where the activation API requires them.
+- [x] Add reusable GLU and SiTU-GLU primitives after tensor slicing support is sufficient.
+- [x] Add Huber/smooth-L1, KL divergence, focal loss, and label smoothing.
+- [x] Add reusable L1/L2 regularization terms without duplicating optimizer weight decay.
 
 ### Sampling
 
-- [ ] Add top-p and min-p filtering while preserving the allocation-conscious top-k path.
-- [ ] Add sparse logit bias and frequency/presence penalties alongside the existing repetition penalty.
-- [ ] Support deterministic seeded sampling and document tie-breaking behavior.
-- [ ] Specify all-NaN and otherwise unsampleable-row behavior instead of silently returning token zero.
+- [x] Add top-p and min-p filtering while preserving the allocation-conscious top-k path.
+- [x] Add sparse logit bias and frequency/presence penalties alongside the existing repetition penalty.
+- [x] Support deterministic seeded sampling and document tie-breaking behavior.
+- [x] Specify all-NaN and otherwise unsampleable-row behavior instead of silently returning token zero.
 
 ### Initialization
 
-- [ ] Add Xavier/Glorot uniform and normal initialization.
-- [ ] Add He/Kaiming uniform and normal initialization.
-- [ ] Allow callers to supply random-number generators for reproducible initialization.
+- [x] Add Xavier/Glorot uniform and normal initialization.
+- [x] Add He/Kaiming uniform and normal initialization.
+- [x] Allow callers to supply random-number generators for reproducible initialization.
 
-**Stage completion:** numerical edge cases have focused specs; activation and loss derivatives pass numerical gradient checks; seeded sampling is reproducible; existing training and decoding specs remain green.
+**Stage completion:** complete. Numerical edge cases have focused specs; activation and loss derivatives pass numerical gradient checks; seeded sampling is reproducible; existing training and decoding specs remain green.
 
 ## Stage 2: Tensor foundation
 

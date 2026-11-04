@@ -89,4 +89,57 @@ describe SHAInet::Sampler do
       m.data[2].should eq(2.0_f32) # penalized
     end
   end
+
+  describe "probability filtering" do
+    it "keeps the smallest top-p nucleus" do
+      m = logits_row([4.0_f32, 3.0_f32, 2.0_f32, 1.0_f32])
+      s = SHAInet::Sampler.new(top_k: 4, top_p: 0.6, rng: Random.new(9))
+      100.times { s.sample(m).should eq(0) }
+    end
+
+    it "drops tokens below the min-p fraction of the leading probability" do
+      m = logits_row([4.0_f32, 3.0_f32, 2.0_f32, 1.0_f32])
+      s = SHAInet::Sampler.new(top_k: 4, min_p: 0.2, rng: Random.new(9))
+      100.times { s.sample(m).should be < 2 }
+    end
+
+    it "excludes all non-finite logits" do
+      m = logits_row([Float32::INFINITY, 2.0_f32, 1.0_f32, Float32::NAN])
+      s = SHAInet::Sampler.new(top_k: 4, rng: Random.new(9))
+      100.times do
+        id = s.sample(m)
+        (id == 1 || id == 2).should be_true
+      end
+    end
+
+    it "raises when no finite logit can be sampled" do
+      m = logits_row([Float32::NAN, Float32::INFINITY, -Float32::INFINITY])
+      s = SHAInet::Sampler.new
+      expect_raises(ArgumentError, "no finite logits") { s.sample(m) }
+    end
+
+    it "validates probability thresholds" do
+      expect_raises(ArgumentError) { SHAInet::Sampler.new(top_p: 0.0) }
+      expect_raises(ArgumentError) { SHAInet::Sampler.new(min_p: -0.1) }
+    end
+  end
+
+  describe "logit adjustments" do
+    it "adds sparse logit bias" do
+      m = logits_row([1.0_f32, 2.0_f32, 3.0_f32])
+      s = SHAInet::Sampler.new
+      s.apply_logit_bias!(m, {2 => 2.5, 0 => -1.0})
+      m.data.should eq([0.0_f32, 2.0_f32, 5.5_f32])
+      expect_raises(ArgumentError) { s.apply_logit_bias!(m, {9 => 1.0}) }
+    end
+
+    it "applies frequency and presence penalties once per unique token" do
+      m = logits_row([4.0_f32, 4.0_f32, 4.0_f32])
+      s = SHAInet::Sampler.new(frequency_penalty: 0.5, presence_penalty: 0.25)
+      s.apply_frequency_presence_penalties!(m, [0, 0, 1])
+      m.data[0].should be_close(2.75, 1e-6)
+      m.data[1].should be_close(3.25, 1e-6)
+      m.data[2].should eq(4.0_f32)
+    end
+  end
 end
