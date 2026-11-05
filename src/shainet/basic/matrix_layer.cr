@@ -240,16 +240,24 @@ module SHAInet
       @sigma_primes = SimpleMatrix.new(linear_result.rows, linear_result.cols)
 
       # CPU activation computation
-      linear_result.rows.times do |i|
-        linear_result.cols.times do |j|
-          val = linear_result[i, j]
-          activation_val, derivative_val = @activation_function.call(val)
-          @activations.not_nil![i, j] = activation_val
-          @sigma_primes.not_nil![i, j] = derivative_val
+      unless try_jit_activation_pair(linear_result, @activations.as(SimpleMatrix), @sigma_primes.as(SimpleMatrix))
+        linear_result.rows.times do |i|
+          linear_result.cols.times do |j|
+            val = linear_result[i, j]
+            activation_val, derivative_val = @activation_function.call(val)
+            @activations.not_nil![i, j] = activation_val
+            @sigma_primes.not_nil![i, j] = derivative_val
+          end
         end
       end
 
       @activations.as(SimpleMatrix)
+    end
+
+    # :nodoc:
+    # Returns whether an optional backend computed both activation matrices.
+    protected def try_jit_activation_pair(input : SimpleMatrix, output : SimpleMatrix, derivatives : SimpleMatrix) : Bool
+      false
     end
 
     # GPU path backward - all CudaMatrix operations

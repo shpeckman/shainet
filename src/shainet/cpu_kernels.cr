@@ -1,6 +1,8 @@
+# src/shainet/cpu_kernels.cr
+
 module SHAInet
-  # Dynamic binding to libshainet_cpu_kernels.so (AVX2 Q4_K/Q6_K GEMV
-  # and fp32 SGEMM). Loaded at runtime via dlopen -- optional, Crystal
+  # Dynamic binding to libshainet_cpu_kernels.so (AVX2/AVX-VNNI Q4_K/Q6_K
+  # GEMV and fp32 SGEMM). Loaded at runtime via dlopen -- optional, Crystal
   # scalar fallback used when missing.
   module CPUKernels
     alias GemvProc = Proc(
@@ -11,6 +13,8 @@ module SHAInet
       Pointer(Float32), Pointer(Float32), Pointer(Float32),
       Int32, Int32, Int32, Nil,
     )
+    # :nodoc:
+    alias FeatureProc = Proc(Int32)
 
     # Scalar reference dequant for one row of an i-quant tensor. Used for the embedding (per-row,
     # on demand) and for transcoding tensors whose type has no fast kernel yet.
@@ -26,6 +30,7 @@ module SHAInet
     @@gemv_q4k : GemvProc?
     @@gemv_q6k : GemvProc?
     @@sgemm : SgemmProc?
+    @@q8_vnni_enabled : FeatureProc?
     @@dequant_iq4xs_row : DequantRowProc?
     @@dequant_any_row : DequantAnyProc?
     @@gemv_any_host : GemvAnyProc?
@@ -68,6 +73,16 @@ module SHAInet
       !!@@handle
     end
 
+    # :nodoc:
+    # Returns whether host Q8 kernels currently dispatch to AVX-VNNI.
+    def self.q8_vnni? : Bool
+      ensure_loaded
+      if fn = @@q8_vnni_enabled
+        return fn.call != 0
+      end
+      false
+    end
+
     private def self.ensure_loaded
       return if @@checked
       @@checked = true
@@ -85,6 +100,9 @@ module SHAInet
 
       sym = LibC.dlsym(handle, "dequant_iq4xs_row")
       @@dequant_iq4xs_row = DequantRowProc.new(sym, Pointer(Void).null) if sym
+
+      sym = LibC.dlsym(handle, "q8_vnni_enabled")
+      @@q8_vnni_enabled = FeatureProc.new(sym, Pointer(Void).null) if sym
 
       sym = LibC.dlsym(handle, "gemv_q4k_cpu")
       if sym

@@ -36,6 +36,25 @@ dependencies:
     github: BrightSec/shainet
 ```
 
+### CPU JIT (Optional)
+
+Install LLVM 19–23 development files and add the optional `shainet-jit` shard. With local sibling checkouts:
+
+```yaml
+dependencies:
+  shainet-jit:
+    path: ../shainet-jit
+```
+
+Then load SHAInet and the extension:
+
+```crystal
+require "shainet"
+require "shainet-jit"
+```
+
+The extension require enables native activation/derivative kernels for supported dense CPU layers. It covers identity, sigmoid, log-sigmoid, bp-sigmoid, tanh, ReLU, and leaky ReLU; custom or unsupported activations retain the scalar path. Check `SHAInet::JIT.available?` and use `SHAInet::JIT.enabled = false` to force scalar execution for comparison or debugging. JIT compilation is lazy and occurs once per process.
+
 ### GPU Acceleration (Optional)
 
 - Install the CUDA Toolkit and ensure `libcudart.so` and `libcublas.so` are in your `LD_LIBRARY_PATH`.
@@ -315,7 +334,10 @@ Run `devtool cr run benchmarks/numeric_formats_benchmark.cr` for reproducible ma
 
 Point `HFLoader.load` at an Ollama model name, a blob, or a `.gguf` file. Q4_K and
 Q6_K weights are kept quantized and dequantized inside the GEMV/GEMM kernels, and
-layer placement is automatic — **no environment variables are needed**:
+layer placement is automatic — **no environment variables are needed**. Host
+Q4_K/Q6_K kernels automatically use AVX-VNNI for INT8 dot products when supported,
+with identical AVX2 results on other CPUs. Set `SHAINET_CPU_VNNI=0` to force the
+AVX2 path for debugging or benchmarking:
 
 ```crystal
 net = SHAInet::HFLoader.load("qwen3.5:27b")          # Ollama model name

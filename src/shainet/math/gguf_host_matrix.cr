@@ -2,8 +2,8 @@ module SHAInet
   # Host-resident GGUF k-quant weight matrix backed by an mmap'd file region.
   # Performs GEMV entirely on the CPU -- zero PCIe transfer, zero GPU involvement.
   #
-  # Primary path: AVX2 C kernels (libshainet_cpu_kernels.so) with OpenMP
-  # parallelism over output columns. Fallback: Crystal scalar loops.
+  # Primary path: AVX2/AVX-VNNI C kernels (libshainet_cpu_kernels.so) with
+  # OpenMP parallelism over output columns. Fallback: Crystal scalar loops.
   class GGUFHostMatrix
     include QuantizedWeight
 
@@ -26,15 +26,15 @@ module SHAInet
 
     # Which types can live on the host at all.
     #
-    # The k-quants have a fused AVX2 GEMV; everything else falls back to dequantizing a row through
-    # the scalar reference and dotting it, which is slower but correct. Both are far better than the
-    # alternative: placement is driven by free VRAM, so refusing a type here does not keep it off the
-    # host, it just turns a slow layer into a crash after the model has finished loading.
+    # The k-quants have a fused native SIMD GEMV; everything else falls back to dequantizing a row
+    # through the scalar reference and dotting it, which is slower but correct. Both are far better
+    # than the alternative: placement is driven by free VRAM, so refusing a type here does not keep
+    # it off the host, it just turns a slow layer into a crash after the model has finished loading.
     def self.host_type_supported?(t : GGUF::GGMLType) : Bool
       t.q4_k? || t.q6_k? || GGUF::BLOCK_SIZE.has_key?(t)
     end
 
-    # Whether this type gets the fused AVX2 path rather than the reference fallback. Callers use it to
+    # Whether this type gets the fused SIMD path rather than the reference fallback. Callers use it to
     # decide placement PREFERENCE -- a host layer of i-quants is legal but worth avoiding.
     def self.host_type_fast?(t : GGUF::GGMLType) : Bool
       t.q4_k? || t.q6_k?
@@ -111,17 +111,17 @@ module SHAInet
       # Allocate host result
       y_host = Pointer(Float32).malloc(m * n)
 
-      # Run CPU GEMV (AVX2 or scalar fallback)
-      used_avx2 = case @ggml_type
-                  when .q4_k?
-                    CPUKernels.gemv_q4k(x_host, @host_ptr, y_host, m, n, k)
-                  when .q6_k?
-                    CPUKernels.gemv_q6k(x_host, @host_ptr, y_host, m, n, k)
-                  else
-                    false
-                  end
+      # Run CPU GEMV (native SIMD or scalar fallback)
+      used_native = case @ggml_type
+                    when .q4_k?
+                      CPUKernels.gemv_q4k(x_host, @host_ptr, y_host, m, n, k)
+                    when .q6_k?
+                      CPUKernels.gemv_q6k(x_host, @host_ptr, y_host, m, n, k)
+                    else
+                      false
+                    end
 
-      unless used_avx2
+      unless used_native
         gemv_scalar(x_host, y_host, m, k, n)
       end
 

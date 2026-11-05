@@ -1,5 +1,6 @@
-/*
- * SHAInet CPU-side AVX2 kernels for k-quant GEMV.
+/* src/shainet/native/cpu_kernels.c
+ *
+ * SHAInet CPU-side AVX2/AVX-VNNI kernels for k-quant GEMV.
  *
  * Q4_K and Q6_K dot products that dequant on-the-fly using AVX2 integer/FP
  * intrinsics, similar to llama.cpp's ggml-cpu-quants.c. No data is copied --
@@ -339,15 +340,31 @@ static inline int32_t hsum_epi32_128(__m128i v) {
 
 /* Sum 32 unsigned x signed byte products, split into the first and second 16.
  *
- * maddubs gives int16 lane k = bytes 2k,2k+1; madd_epi16 then gives int32 lane j = int16 lanes
- * 2j,2j+1 = bytes 4j..4j+3, within each 128-bit half. So int32 lanes 0-3 cover bytes 0-15 and
- * lanes 4-7 cover bytes 16-31, which is exactly the 16-value scale groups Q6_K needs; Q4_K just
- * adds the two halves. Bounds: maddubs peaks at 2*63*127 = 16002, inside int16. */
-static inline void maddubs32_split(__m256i u, __m256i s, int32_t *lo16, int32_t *hi16) {
+ * Both paths produce int32 lane j = bytes 4j..4j+3 within each 128-bit half. So int32 lanes 0-3
+ * cover bytes 0-15 and lanes 4-7 cover bytes 16-31, exactly the 16-value scale groups Q6_K needs;
+ * Q4_K just adds the two halves. AVX2's maddubs peaks at 2*63*127 = 16002, inside int16, so its
+ * pairwise sums exactly match VNNI's four-byte sums. */
+static inline __attribute__((always_inline)) void avx2_dot32_split(
+        __m256i u, __m256i s, int32_t *lo16, int32_t *hi16) {
     __m256i p16 = _mm256_maddubs_epi16(u, s);
     __m256i p32 = _mm256_madd_epi16(p16, _mm256_set1_epi16(1));
     *lo16 = hsum_epi32_128(_mm256_castsi256_si128(p32));
     *hi16 = hsum_epi32_128(_mm256_extracti128_si256(p32, 1));
+}
+
+__attribute__((target("avxvnni")))
+static inline void vnni_dot32_split(__m256i u, __m256i s, int32_t *lo16, int32_t *hi16) {
+    __m256i p32 = _mm256_dpbusd_epi32(_mm256_setzero_si256(), u, s);
+    *lo16 = hsum_epi32_128(_mm256_castsi256_si128(p32));
+    *hi16 = hsum_epi32_128(_mm256_extracti128_si256(p32, 1));
+}
+
+/* use_vnni is constant in each whole-row specialization. The unused branch disappears before the
+ * target-specific helper is inlined, leaving no feature check in the vector loop. */
+static inline __attribute__((always_inline)) void dot32_split(
+        __m256i u, __m256i s, int32_t *lo16, int32_t *hi16, const int use_vnni) {
+    if (use_vnni) vnni_dot32_split(u, s, lo16, hi16);
+    else avx2_dot32_split(u, s, lo16, hi16);
 }
 
 /* Quantize one activation row to Q8_K. */
@@ -387,8 +404,9 @@ static void quantize_row_q8k(const float *x, int K, int nb,
  *               - dmin * SUM_g m[g] * SUM_(i in g) qa_i )
  *
  * The second sum is two group-of-16 bsums, so the min term costs no multiplies over K. */
-static float dot_q4k_q8k(const uint8_t *w, const float *da, const int8_t *qa,
-                         const int16_t *bsums, int nb) {
+static inline __attribute__((always_inline)) float dot_q4k_q8k_impl(
+        const uint8_t *w, const float *da, const int8_t *qa,
+        const int16_t *bsums, int nb, const int use_vnni) {
     const __m256i lomask = _mm256_set1_epi8(0x0F);
     float sumf = 0.0f;
 
@@ -418,8 +436,8 @@ static float dot_q4k_q8k(const uint8_t *w, const float *da, const int8_t *qa,
             __m256i ahi = _mm256_loadu_si256((const __m256i *)(ap + j64 * 64 + 32));
 
             int32_t l0, h0, l1, h1;
-            maddubs32_split(nlo, alo, &l0, &h0);
-            maddubs32_split(nhi, ahi, &l1, &h1);
+            dot32_split(nlo, alo, &l0, &h0, use_vnni);
+            dot32_split(nhi, ahi, &l1, &h1, use_vnni);
             main_acc += (int32_t)s0 * (l0 + h0) + (int32_t)s1 * (l1 + h1);
 
             /* Each 32-value group spans two bsums groups of 16. */
@@ -432,15 +450,27 @@ static float dot_q4k_q8k(const uint8_t *w, const float *da, const int8_t *qa,
     return sumf;
 }
 
+static float dot_q4k_q8k_avx2(const uint8_t *w, const float *da, const int8_t *qa,
+                              const int16_t *bsums, int nb) {
+    return dot_q4k_q8k_impl(w, da, qa, bsums, nb, 0);
+}
+
+__attribute__((target("avxvnni")))
+static float dot_q4k_q8k_vnni(const uint8_t *w, const float *da, const int8_t *qa,
+                              const int16_t *bsums, int nb) {
+    return dot_q4k_q8k_impl(w, da, qa, bsums, nb, 1);
+}
+
 /* Q6_K weight row against a Q8_K activation row.
  *
  *   w_i = d * sc[is] * (q6_i - 32)              (is = i/16, q6_i a 6-bit value 0..63)
  *   dot = da * d * SUM_is sc[is] * ( SUM_(i in is) q6_i*qa_i - 32 * bsums[is] )
  *
- * Keeping q6 unsigned and folding the -32 through bsums is what lets maddubs be used at all;
- * its unsigned operand cannot carry a signed weight. */
-static float dot_q6k_q8k(const uint8_t *w, const float *da, const int8_t *qa,
-                         const int16_t *bsums, int nb) {
+ * Keeping q6 unsigned and folding the -32 through bsums gives both integer instructions the
+ * unsigned weight operand they require. */
+static inline __attribute__((always_inline)) float dot_q6k_q8k_impl(
+        const uint8_t *w, const float *da, const int8_t *qa,
+        const int16_t *bsums, int nb, const int use_vnni) {
     const __m256i lomask = _mm256_set1_epi8(0x0F);
     const __m256i m3 = _mm256_set1_epi8(3);
     float sumf = 0.0f;
@@ -481,7 +511,7 @@ static float dot_q6k_q8k(const uint8_t *w, const float *da, const int8_t *qa,
             for (int sub = 0; sub < 4; sub++) {
                 __m256i av = _mm256_loadu_si256((const __m256i *)(ap_c + sub * 32));
                 int32_t lo, hi;
-                maddubs32_split(*vs[sub], av, &lo, &hi);
+                dot32_split(*vs[sub], av, &lo, &hi, use_vnni);
                 /* Within a 32-value span the scale changes at l=16: sc_c[sub*2], sc_c[sub*2+1]. */
                 int is0 = sub * 2, is1 = sub * 2 + 1;
                 main_acc += (int32_t)sc_c[is0] * (lo - 32 * (int32_t)bs_c[is0]);
@@ -491,6 +521,17 @@ static float dot_q6k_q8k(const uint8_t *w, const float *da, const int8_t *qa,
         sumf += da[b] * d * (float)main_acc;
     }
     return sumf;
+}
+
+static float dot_q6k_q8k_avx2(const uint8_t *w, const float *da, const int8_t *qa,
+                              const int16_t *bsums, int nb) {
+    return dot_q6k_q8k_impl(w, da, qa, bsums, nb, 0);
+}
+
+__attribute__((target("avxvnni")))
+static float dot_q6k_q8k_vnni(const uint8_t *w, const float *da, const int8_t *qa,
+                              const int16_t *bsums, int nb) {
+    return dot_q6k_q8k_impl(w, da, qa, bsums, nb, 1);
 }
 
 /* Allocate and fill Q8_K activations for all M rows. Returns 0 on allocation failure. */
@@ -601,6 +642,17 @@ static int q8_enabled(void) {
         cached = (e && e[0] == '0') ? 0 : 1;
     }
     return cached;
+}
+
+/* CPU support is cached; the opt-out remains dynamic so specs can compare both paths in one process. */
+int q8_vnni_enabled(void) {
+    static int supported = -1;
+    if (supported < 0) {
+        __builtin_cpu_init();
+        supported = __builtin_cpu_supports("avxvnni") ? 1 : 0;
+    }
+    const char *e = getenv("SHAINET_CPU_VNNI");
+    return supported && !(e && e[0] == '0');
 }
 
 /* How many tokens to hold in the inner loop.
@@ -1013,6 +1065,8 @@ void gemv_q4k_cpu(const float *x, const uint8_t *W, float *y,
         int nb = K / Q4_K_VALS_PER_BLK;
         q8k_act act;
         if (quantize_act_q8k(x, M, K, nb, &act)) {
+            float (*dot_row)(const uint8_t *, const float *, const int8_t *, const int16_t *, int) =
+                q8_vnni_enabled() ? dot_q4k_q8k_vnni : dot_q4k_q8k_avx2;
             int mblk = q8_token_block(K, M);
             for (int m0 = 0; m0 < M; m0 += mblk) {
                 int mcount = (M - m0 < mblk) ? (M - m0) : mblk;
@@ -1025,7 +1079,7 @@ void gemv_q4k_cpu(const float *x, const uint8_t *W, float *y,
                     const uint8_t *wrow = W + (long long)n * bytes_per_row;
                     for (int mi = 0; mi < mcount; mi++) {
                         int m = m0 + mi;
-                        y[(long long)m * N + n] = dot_q4k_q8k(wrow,
+                        y[(long long)m * N + n] = dot_row(wrow,
                             act.d + (size_t)m * nb,
                             act.qs + (size_t)m * K,
                             act.bsums + (size_t)m * nb * 16, nb);
@@ -1072,6 +1126,8 @@ void gemv_q6k_cpu(const float *x, const uint8_t *W, float *y,
         int nb = K / Q6_K_VALS_PER_BLK;
         q8k_act act;
         if (quantize_act_q8k(x, M, K, nb, &act)) {
+            float (*dot_row)(const uint8_t *, const float *, const int8_t *, const int16_t *, int) =
+                q8_vnni_enabled() ? dot_q6k_q8k_vnni : dot_q6k_q8k_avx2;
             int mblk = q8_token_block(K, M);
             for (int m0 = 0; m0 < M; m0 += mblk) {
                 int mcount = (M - m0 < mblk) ? (M - m0) : mblk;
@@ -1084,7 +1140,7 @@ void gemv_q6k_cpu(const float *x, const uint8_t *W, float *y,
                     const uint8_t *wrow = W + (long long)n * bytes_per_row;
                     for (int mi = 0; mi < mcount; mi++) {
                         int m = m0 + mi;
-                        y[(long long)m * N + n] = dot_q6k_q8k(wrow,
+                        y[(long long)m * N + n] = dot_row(wrow,
                             act.d + (size_t)m * nb,
                             act.qs + (size_t)m * K,
                             act.bsums + (size_t)m * nb * 16, nb);

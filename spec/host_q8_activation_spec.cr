@@ -1,3 +1,5 @@
+# spec/host_q8_activation_spec.cr
+
 require "./spec_helper"
 
 # The host k-quant path quantizes the ACTIVATION to int8 and multiplies against the raw weight
@@ -125,6 +127,92 @@ describe "host Q8 activation path" do
       rms_rel = Math.sqrt(num / den)
       # Comfortably above the ~0.3% measured on real weights, far below any unpacking error.
       rms_rel.should be < 0.02
+    end
+  end
+end
+
+private def extreme_q4k_block(seed : Int32) : Bytes
+  b = q4k_block(seed)
+  12.times { |i| b[4 + i] = (i * 53 + seed * 29).to_u8! }
+  b
+end
+
+private def extreme_q6k_block(seed : Int32) : Bytes
+  b = q6k_block(seed)
+  16.times do |i|
+    value = case i % 4
+            when 0 then 127
+            when 1 then -128
+            when 2 then 63
+            else        -64
+            end
+    b[192 + i] = value.to_i8.to_u8!
+  end
+  b
+end
+
+describe "host Q8 AVX-VNNI path" do
+  {"Q4_K" => 144, "Q6_K" => 210}.each do |kind, bs|
+    it "matches AVX2 exactly on multi-block extreme inputs for #{kind}" do
+      pending! "CPU kernels not loaded" unless SHAInet::CPUKernels.available?
+      previous = ENV["SHAINET_CPU_VNNI"]?
+      begin
+        ENV.delete("SHAINET_CPU_VNNI")
+        pending! "AVX-VNNI not supported" unless SHAInet::CPUKernels.q8_vnni?
+
+        k = 512
+        n = 5
+        m = 3
+        blocks_per_row = 2
+        w = Pointer(UInt8).malloc(n * bs * blocks_per_row)
+        ref_rows = Array(Array(Float32)).new
+        n.times do |r|
+          ref_row = [] of Float32
+          blocks_per_row.times do |b|
+            seed = r * 7 + b * 3
+            blk = kind == "Q4_K" ? extreme_q4k_block(seed) : extreme_q6k_block(seed)
+            blk.each_with_index { |byte, i| w[(r * blocks_per_row + b) * bs + i] = byte }
+            ref_row.concat(kind == "Q4_K" ? deq_q4k(blk) : deq_q6k(blk))
+          end
+          ref_rows << ref_row
+        end
+
+        x = Pointer(Float32).malloc(m * k)
+        (m * k).times { |i| x[i] = (((i * 37) % 257 - 128) * 0.0625).to_f32 }
+        avx2 = Pointer(Float32).malloc(m * n)
+        vnni = Pointer(Float32).malloc(m * n)
+
+        ENV["SHAINET_CPU_VNNI"] = "0"
+        avx2_ok = kind == "Q4_K" ? SHAInet::CPUKernels.gemv_q4k(x, w, avx2, m, n, k) : SHAInet::CPUKernels.gemv_q6k(x, w, avx2, m, n, k)
+        avx2_ok.should be_true
+        SHAInet::CPUKernels.q8_vnni?.should be_false
+
+        ENV["SHAINET_CPU_VNNI"] = "1"
+        vnni_ok = kind == "Q4_K" ? SHAInet::CPUKernels.gemv_q4k(x, w, vnni, m, n, k) : SHAInet::CPUKernels.gemv_q6k(x, w, vnni, m, n, k)
+        vnni_ok.should be_true
+        SHAInet::CPUKernels.q8_vnni?.should be_true
+
+        (m * n).times { |i| vnni[i].should eq(avx2[i]) }
+
+        num = 0.0
+        den = 0.0
+        m.times do |r|
+          n.times do |c|
+            exact = 0.0
+            k.times { |i| exact += ref_rows[c][i].to_f64 * x[r * k + i].to_f64 }
+            diff = vnni[r * n + c].to_f64 - exact
+            num += diff * diff
+            den += exact * exact
+          end
+        end
+        Math.sqrt(num / den).should be < 0.02
+      ensure
+        if previous
+          ENV["SHAINET_CPU_VNNI"] = previous
+        else
+          ENV.delete("SHAINET_CPU_VNNI")
+        end
+      end
     end
   end
 end

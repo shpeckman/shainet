@@ -47,5 +47,7 @@ Run focused specs with `devtool cr spec spec/name_spec.cr`. GPU specs may remain
 - `KVCompressor` is opt-in and must not change default cache retention. `ConvRingCache` is the fixed-size streaming seam for `ShortConv`.
 - `numeric_formats.cr` contains Float16, BF16, grouped-int8, MXFP4, and FWHT scalar references. Matvec uses fixed-order Float64 accumulation.
 - `SHAINET_NATIVE_SGEMM=1` explicitly enables native AVX2 SGEMM through `CPUKernels`; default scalar multiplication must remain intact. `numeric_formats_benchmark.cr` records timings and `GC.stats.total_bytes` deltas.
+- Host Q4_K/Q6_K Q8 GEMV dispatches whole-row kernels to AVX-VNNI when supported while retaining baseline AVX2 library flags and fallback. `SHAINET_CPU_VNNI=0` forces AVX2; `CPUKernels.q8_vnni?` exposes the active dispatch for parity specs.
+- `MatrixLayer#try_jit_activation_pair` is a protected `:nodoc:` single-backend hook for the optional sibling `shainet-jit` shard. Core returns `false`; an extension returns `true` only after filling activation and derivative matrices. Keep the scalar loop as fallback and do not add LLVM dependencies to core.
 
 New general architecture layers are CPU-only unless CUDA forward/backward parity is implemented and verified. Unsupported new attention options on CUDA must fail explicitly rather than silently changing numerics.
