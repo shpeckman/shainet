@@ -1155,7 +1155,8 @@ module SHAInet
     # layer loads. This keeps host memory
     # bounded (a few GB) instead of materializing the entire fp32 model at once
     # (~28 GB for a 7B), which lets large models load on modest-RAM machines.
-    def self.load_llama(model_dir : String, quantize : Bool = false, bits : Int32 = 8) : Network
+    # *max_layers* loads only the first transformer blocks for explicit truncated-backbone experiments.
+    def self.load_llama(model_dir : String, quantize : Bool = false, bits : Int32 = 8, max_layers : Int32? = nil) : Network
       config_path = ::File.join(model_dir, "config.json")
       raise "config.json not found in #{model_dir}" unless ::File.exists?(config_path)
 
@@ -1164,6 +1165,9 @@ module SHAInet
       sf = open_safetensors(model_dir)
 
       begin
+        layers = max_layers || config.num_hidden_layers
+        raise ArgumentError.new("max_layers must be positive") unless layers > 0
+        layers = Math.min(layers, config.num_hidden_layers)
         d = config.hidden_size
         ff = config.intermediate_size
         n_heads = config.num_attention_heads
@@ -1198,7 +1202,7 @@ module SHAInet
         if dense_offload && !ENV.has_key?("SHAINET_EXPERT_CACHE_MB")
           Log.warn { "SHAINET_DENSE_OFFLOAD=1 without SHAINET_EXPERT_CACHE_MB: the hot cache defaults to 70% of free VRAM and will promote the dense weights back onto the device, which can use MORE VRAM than not offloading. Set SHAINET_EXPERT_CACHE_MB (0 disables the cache) to get the capacity win." }
         end
-        config.num_hidden_layers.times do
+        layers.times do
           net.add_layer(:llama, d, num_heads: n_heads, ff_hidden: ff, num_kv_heads: config.num_key_value_heads, eps: eps, head_dim: config.head_dim,
             moe_experts: config.num_experts, moe_top_k: config.num_experts_per_tok, moe_norm_topk: config.norm_topk_prob, moe_ff_hidden: config.moe_intermediate_size, moe_offload: moe_offload)
         end
@@ -1222,7 +1226,7 @@ module SHAInet
         GC.collect if do_quant
 
         # Load transformer blocks
-        config.num_hidden_layers.times do |idx|
+        layers.times do |idx|
           block = net.transformer_layers[idx].as(LlamaBlock)
           block.rope_theta = theta
           block.rope_freqs = rope_freqs

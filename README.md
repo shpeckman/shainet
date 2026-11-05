@@ -520,6 +520,57 @@ out = a * w
 out[0, 0].as(SHAInet::Autograd::Tensor).backward
 ```
 
+## System One decision models
+
+`SHAInet::Decision` turns state and typed questions into bounded answers with probabilities rather than generated text. A frozen transformer supplies sequence hidden states through `Network#encode`; `JointSchemaHead` routes option-specific evidence, jointly processes questions, and scores every allowed option in parallel.
+
+```crystal
+questions = {} of String => SHAInet::Decision::Question
+questions["team"] = SHAInet::Decision::Choice.new("Which team handles this?", {
+  "billing" => "Payments and invoices",
+  "technical" => "Errors and outages",
+})
+questions["urgent"] = SHAInet::Decision::Noul.new("Is this urgent?")
+request = SHAInet::Decision::Request.new("Checkout is failing for everyone.", questions)
+
+encoder = SHAInet::Decision::Encoder.new(tokenizer)
+config = SHAInet::Decision::JointSchemaHead::Config.new(hidden_size, 256, 2, 2, 8, 1024, false)
+head = SHAInet::Decision::JointSchemaHead.new(config)
+model = SHAInet::Decision::Model.new(network, encoder, head)
+
+hidden, encoded = model.encode(request)
+examples = [SHAInet::Decision::Example.new(hidden, encoded, [1, 0])]
+trainer = SHAInet::Decision::Trainer.new(head, learning_rate: 0.001)
+10.times { trainer.train_epoch(examples) }
+
+answers = model.decide(request)
+team = answers["team"].as(SHAInet::Decision::ChoiceAnswer)
+team.choice         # an option supplied above
+team.probabilities # one probability per option
+team.plausible     # conformal set when fitted
+```
+
+Choice, Score, and Noul are supported. Choice returns the highest-probability option, Score returns the expectation across ordered levels, and Noul returns `P(true)`. Confidence summarizes the output distribution; it is not an independent correctness guarantee. `Encoder` defaults to verbose schema markup; pass `Decision::Style::Compact` to reduce token overhead while preserving question and option spans.
+
+Training uses log or Brier proper scoring rules by default. `Trainer` also supports seeded group-relative correctness rewards, including ordinal partial credit for Score. Use separate data partitions for training, temperature fitting, conformal fitting, and final testing:
+
+```crystal
+predictions = trainer.predict(calibration_examples)
+half = predictions.size // 2
+other_half = predictions.size - half
+model.fit_temperature(predictions.first(half))
+model.fit_conformal(predictions.last(other_half), groups: 4)
+metrics = SHAInet::Decision::Calibration.evaluate(test_predictions, model.temperatures)
+metrics.accuracy
+metrics.ece
+```
+
+`Decision::Checkpoint.save` and `.load` persist the head, temperatures, and conformal tables; backbone weights remain in their existing SafeTensors or GGUF files. See `examples/system_one.cr` for a complete small training example and `benchmarks/decision_benchmark.cr` for scaling measurements.
+
+Decision heads are currently text-only and CPU-only. The backbone is frozen during head training; LoRA, images, Box, audio, video, and CUDA parity are not included. Schema-bounded output prevents out-of-schema strings, not wrong decisions. Evaluate accuracy and calibration on representative held-out data before automation.
+
+For explicit truncated-backbone experiments, `HFLoader.load_llama(path, max_layers: n)` loads only the first *n* transformer blocks. Truncated results are not equivalent to the full checkpoint; record the depth in evaluations.
+
 ## Contributing
 
 1. Fork [https://github.com/BrightSec/shainet](https://github.com/BrightSec/shainet)

@@ -10,6 +10,7 @@ SHAInet is a Crystal 1.22.1+ neural-network shard. Core tensor storage is `Simpl
 - `src/shainet/training/`: optimizers, schedules, clipping, and gradient checking.
 - `src/shainet/text/`: sampling, beam search, constrained decoding, and tokenizer implementations.
 - `src/shainet/retrieval/`: dense, BM25, reciprocal-rank-fusion, and hybrid retrieval.
+- `src/shainet/decision/`: typed System One schemas, joint evidence-routing heads, RLCD-style training, calibration, conformal prediction, and checkpoints.
 - `spec/`: unit, numerical, integration, device-parity, and end-to-end specs.
 - `ROADMAP.md`: independently mergeable engineering stages and verification gates.
 
@@ -49,5 +50,9 @@ Run focused specs with `devtool cr spec spec/name_spec.cr`. GPU specs may remain
 - `SHAINET_NATIVE_SGEMM=1` explicitly enables native AVX2 SGEMM through `CPUKernels`; default scalar multiplication must remain intact. `numeric_formats_benchmark.cr` records timings and `GC.stats.total_bytes` deltas.
 - Host Q4_K/Q6_K Q8 GEMV dispatches whole-row kernels to AVX-VNNI when supported while retaining baseline AVX2 library flags and fallback. `SHAINET_CPU_VNNI=0` forces AVX2; `CPUKernels.q8_vnni?` exposes the active dispatch for parity specs.
 - `MatrixLayer#try_jit_activation_pair` is a protected `:nodoc:` single-backend hook for the optional sibling `shainet-jit` shard. Core returns `false`; an extension returns `true` only after filling activation and derivative matrices. Keep the scalar loop as fallback and do not add LLVM dependencies to core.
+- `Network#encode` returns final normalized sequence hidden states before last-row LM projection, reusing `run_unchunked` with an early return. Keep `Network#run` unchanged and keep encoding frozen and outside KV-cache mode. `HFLoader.load_llama(max_layers:)` loads an explicit prefix of transformer blocks for truncated-backbone experiments.
+- `Decision::Encoder` supports verbose chat-style and compact schema encodings; both preserve question/option spans. `Decision::JointSchemaHead` uses `SimpleMatrix` parameters with `GradMatrix` leaves. Private `Decision::Graph` supplies pooling, normalization, attention, and scorer operations; multihead attention reuses `AttentionOps` forward/backward. Backward starts from one root over all ragged outputs so shared field gradients propagate once.
+- `Decision::Trainer` consumes frozen `Example` activations. Log/Brier proper scoring is the default; optional sampled correctness uses seeded group-relative advantages. Temperature fitting and conformal fitting require separate held-out partitions.
+- `Decision::Checkpoint` stores head tensors and uncertainty tables as versioned JSON with atomic replacement. Backbone checkpoints stay in existing formats.
 
-New general architecture layers are CPU-only unless CUDA forward/backward parity is implemented and verified. Unsupported new attention options on CUDA must fail explicitly rather than silently changing numerics.
+Decision layers are text-only CPU references. CUDA overloads fail explicitly. New general architecture layers are CPU-only unless CUDA forward/backward parity is implemented and verified. Unsupported new attention options on CUDA must fail explicitly rather than silently changing numerics.

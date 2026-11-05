@@ -330,7 +330,21 @@ module SHAInet
       run_unchunked(input, stealth)
     end
 
-    private def run_unchunked(input : SimpleMatrix, stealth : Bool = false) : SimpleMatrix
+    # Returns the complete normalized sequence representation before the language-model head.
+    #
+    # Encoding uses the frozen, non-KV-cache CPU path. It is intended for downstream sequence heads.
+    def encode(input : SimpleMatrix) : SimpleMatrix
+      raise ArgumentError.new("encode requires a transformer backbone") if @transformer_layers.empty?
+      raise ArgumentError.new("encode does not use KV-cache decoding") if use_kv_cache?
+      run_unchunked(input, true, true)
+    end
+
+    # :nodoc:
+    def encode(input : CudaMatrix) : SimpleMatrix
+      raise ArgumentError.new("Network#encode is CPU-only")
+    end
+
+    private def run_unchunked(input : SimpleMatrix, stealth : Bool = false, encode_only : Bool = false) : SimpleMatrix
       verify_net_before_train
 
       matrix = input
@@ -472,6 +486,7 @@ module SHAInet
         if fn = @final_norm
           matrix = Profile.measure("net.final_norm") { fn.forward(matrix.as(SimpleMatrix)) }
         end
+        return matrix.as(SimpleMatrix) if encode_only
         # When the quantized head applies the bias on the device, the host loop below
         # is skipped: it walked the whole vocab row per token.
         bias_on_device = false
