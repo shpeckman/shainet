@@ -4,6 +4,10 @@ module SHAInet
     property cols : Int32
     getter data : Array(Float32)
 
+    @tensor_shape : Array(Int32)? = nil
+    @tensor_strides : Array(Int32)? = nil
+    @storage_offset = 0
+
     def initialize(@rows : Int32, @cols : Int32, init : Float32 = 0.0_f32)
       @data = Array(Float32).new(@rows * @cols, init)
     end
@@ -25,19 +29,29 @@ module SHAInet
     end
 
     def [](r : Int32, c : Int32) : Float64
-      @data[r * @cols + c].to_f64
+      if strides = @tensor_strides
+        raise ArgumentError.new("two-index access requires a 2-D tensor") unless @tensor_shape.not_nil!.size == 2
+        @data[@storage_offset + r * strides[0] + c * strides[1]].to_f64
+      else
+        @data[r * @cols + c].to_f64
+      end
     end
 
     def []=(r : Int32, c : Int32, v : Float32)
-      @data[r * @cols + c] = v
+      if strides = @tensor_strides
+        raise ArgumentError.new("two-index access requires a 2-D tensor") unless @tensor_shape.not_nil!.size == 2
+        @data[@storage_offset + r * strides[0] + c * strides[1]] = v
+      else
+        @data[r * @cols + c] = v
+      end
     end
 
     def []=(r : Int32, c : Int32, v : Float64)
-      @data[r * @cols + c] = v.to_f32
+      self[r, c] = v.to_f32
     end
 
     def +(other : SimpleMatrix)
-      raise ArgumentError.new("size mismatch") unless @rows == other.rows && @cols == other.cols
+      return add(other) if rank != 2 || other.rank != 2 || shape != other.shape
       result = SimpleMatrix.new(@rows, @cols)
       @rows.times do |i|
         @cols.times do |j|
@@ -48,7 +62,7 @@ module SHAInet
     end
 
     def -(other : SimpleMatrix)
-      raise ArgumentError.new("size mismatch") unless @rows == other.rows && @cols == other.cols
+      return subtract(other) if rank != 2 || other.rank != 2 || shape != other.shape
       result = SimpleMatrix.new(@rows, @cols)
       @rows.times do |i|
         @cols.times do |j|
@@ -74,6 +88,7 @@ module SHAInet
     end
 
     def *(scalar : Number)
+      return map_values { |value| value * scalar.to_f64 } if rank != 2 || @tensor_shape
       result = SimpleMatrix.new(@rows, @cols)
       @rows.times do |i|
         @cols.times do |j|

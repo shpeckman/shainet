@@ -90,18 +90,18 @@ Establish reliable numerical primitives and fill low-cost, high-value API gaps b
 
 Build shared N-D infrastructure before adding convolution, recurrent, audio, and image operations.
 
-- [ ] Define shape, rank, element-count, contiguous-stride, and layout utilities.
-- [ ] Support reshape, arbitrary axis permutation/transposition, and contiguous materialization.
-- [ ] Add zero-copy views where ownership and lifetime rules permit them; document aliasing and mutation behavior.
-- [ ] Implement NumPy-style broadcast shape inference and scalar/binary broadcasting.
-- [ ] Add elementwise arithmetic, comparisons, logical operations, `where`, clamp, softcap, and add-scaled/AXPY operations.
-- [ ] Generalize reductions and cumulative sum to arbitrary axes, including keep-dimension behavior.
-- [ ] Add gather, embedding lookup, index, slice, strided slice, masked select, concat, stack, pad, and broadcast-expand.
-- [ ] Add sliding-window unfold/im2col as shared infrastructure for convolution and local attention.
-- [ ] Align new functionality with `GradMatrix` and define backward behavior for differentiable operations.
-- [ ] Consolidate or deprecate redundant tensor paths only through an explicit migration; do not create a fourth independent abstraction.
+- [x] Define shape, rank, element-count, contiguous-stride, and layout utilities.
+- [x] Support reshape, arbitrary axis permutation/transposition, and contiguous materialization.
+- [x] Add zero-copy views where ownership and lifetime rules permit them; document aliasing and mutation behavior.
+- [x] Implement NumPy-style broadcast shape inference and scalar/binary broadcasting.
+- [x] Add elementwise arithmetic, comparisons, logical operations, `where`, clamp, softcap, and add-scaled/AXPY operations.
+- [x] Generalize reductions and cumulative sum to arbitrary axes, including keep-dimension behavior.
+- [x] Add gather, embedding lookup, index, slice, strided slice, masked select, concat, stack, pad, and broadcast-expand.
+- [x] Add sliding-window unfold/im2col as shared infrastructure for convolution and local attention.
+- [x] Align new functionality with `GradMatrix` and define backward behavior for differentiable operations.
+- [x] Consolidate or deprecate redundant tensor paths only through an explicit migration; do not create a fourth independent abstraction.
 
-**Stage completion:** shape/stride and broadcasting rules have independent reference specs; views have tested ownership semantics; forward and numerical-gradient specs cover differentiable operations; later layers can use the shared infrastructure without bespoke layout code.
+**Stage completion:** complete. Shape/stride and broadcasting rules have independent reference specs; views have tested ownership semantics; forward and backward specs cover differentiable operations; later layers can use the shared infrastructure without bespoke layout code.
 
 ## Stage 3: Training breadth
 

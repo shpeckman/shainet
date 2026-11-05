@@ -154,6 +154,26 @@ sampler.apply_logit_bias!(logits, {2 => 0.5})
 next_id = sampler.sample(logits)
 ```
 
+### N-D tensors
+
+`SimpleMatrix` supports N-D shapes, row-major strides, shared-storage views, broadcasting, manipulation, reductions, and im2col while retaining its existing 2-D API:
+
+```crystal
+tensor = SHAInet::SimpleMatrix.new([2, 3, 4])
+tensor.set_at([1, 2, 3], 7.0)
+
+view = tensor.permute([2, 0, 1]) # zero-copy, non-contiguous view
+copy = view.contiguous           # materialize logical row-major storage
+rows = tensor.reshape(6, 4)      # zero-copy when contiguous
+
+sums = tensor.sum([0, 2], keep_dims: false)
+windows = tensor.im2col([2]) if tensor.rank == 3
+```
+
+Views share their source storage, so mutations are visible through both. Use `value_at`/`set_at` for N-D coordinates and `to_flat_a` for logical row-major values. The raw `data` array describes backing storage, not logical order for a non-contiguous view.
+
+`Autograd::GradMatrix.from_tensor` creates an N-D autograd value. Reshape, permutation, broadcasting, arithmetic, reductions, selection, indexing, concat/stack, padding, masked selection, and im2col propagate gradients through `backward`.
+
 ### Load a GGUF model (Ollama blob or `.gguf` file)
 
 Point `HFLoader.load` at an Ollama model name, a blob, or a `.gguf` file. Q4_K and

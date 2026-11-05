@@ -22,6 +22,8 @@ module SHAInet
       property backward_fn : Proc(Nil)?
       property name : String?
 
+      @tensor_shape : Array(Int32)? = nil
+
       # Track if this is a leaf node (created by user, not from computation)
       getter? leaf : Bool
 
@@ -128,7 +130,7 @@ module SHAInet
 
       # Total number of elements
       def size : Int32
-        @rows * @cols
+        dimensions.product
       end
 
       # -------------------------------------------------------------------
