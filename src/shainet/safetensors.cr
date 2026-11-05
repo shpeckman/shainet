@@ -290,7 +290,7 @@ module SHAInet
             f32_bits = sign << 31
           else
             # Subnormal: normalize
-            e = -1
+            e = -14
             m = mant
             while (m & 0x400) == 0
               m <<= 1

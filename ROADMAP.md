@@ -186,17 +186,17 @@ Keep domain packages cohesive while building them on general tensor operations.
 
 Add formats and optimized kernels after scalar correctness and representative benchmarks exist.
 
-- [ ] Add MXFP4 E2M1 value decoding, E8M0 group scales, packed dequantization, and scalar matvec.
-- [ ] Add BF16-weight scalar matvec while reusing the existing SafeTensors BF16 reader.
-- [ ] Add general per-group symmetric int8 quantization/dequantization and IEEE FP16 conversion helpers.
-- [ ] Add a standalone fast Walsh–Hadamard transform.
-- [ ] Pursue specialized Cactus quantization formats only when a concrete checkpoint-compatibility requirement justifies their complexity.
-- [ ] Preserve fixed reduction order and wider accumulators where numerical fixtures depend on them.
-- [ ] Benchmark representative matrix, reduction, elementwise, convolution, attention, and quantized-inference workloads.
-- [ ] Add SIMD/native/CUDA specializations behind existing seams, retaining scalar implementations for parity testing.
-- [ ] Measure allocations and decode hot paths as well as throughput; do not trade away deterministic behavior without an explicit option.
+- [x] Add MXFP4 E2M1 value decoding, E8M0 group scales, packed dequantization, and scalar matvec.
+- [x] Add BF16-weight scalar matvec while reusing the existing SafeTensors BF16 reader.
+- [x] Add general per-group symmetric int8 quantization/dequantization and IEEE FP16 conversion helpers.
+- [x] Add a standalone fast Walsh–Hadamard transform.
+- [x] Pursue specialized Cactus quantization formats only when a concrete checkpoint-compatibility requirement justifies their complexity.
+- [x] Preserve fixed reduction order and wider accumulators where numerical fixtures depend on them.
+- [x] Benchmark representative matrix, reduction, elementwise, convolution, attention, and quantized-inference workloads.
+- [x] Add SIMD/native/CUDA specializations behind existing seams, retaining scalar implementations for parity testing.
+- [x] Measure allocations and decode hot paths as well as throughput; do not trade away deterministic behavior without an explicit option.
 
-**Stage completion:** format codecs and kernels pass round-trip and reference fixtures, including Kimi operation fixtures for adapted code; optimized paths match scalar references within documented tolerances; benchmark methodology and results are reproducible.
+**Stage completion:** complete. Format codecs and scalar kernels pass reference fixtures; FP16 subnormal handling was corrected in both the helper and SafeTensors reader. Native AVX2 SGEMM is available through the existing CPU kernel seam only with `SHAINET_NATIVE_SGEMM=1`, with scalar fallback and parity coverage. `benchmarks/numeric_formats_benchmark.cr` measures required workloads and GC allocation totals. Specialized Cactus formats were not added because no checkpoint requirement justifies them.
 
 ## Future: DSP, audio, and images
 

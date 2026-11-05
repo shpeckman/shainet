@@ -75,6 +75,9 @@ module SHAInet
     def *(other : SimpleMatrix)
       raise ArgumentError.new("size mismatch") unless @cols == other.rows
       result = SimpleMatrix.new(@rows, other.cols)
+      if ENV["SHAINET_NATIVE_SGEMM"]? == "1" && contiguous? && other.contiguous?
+        return result if CPUKernels.sgemm(data.to_unsafe, other.data.to_unsafe, result.data.to_unsafe, @rows, other.cols, @cols)
+      end
       @rows.times do |i|
         other.cols.times do |j|
           sum = 0.0

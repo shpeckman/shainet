@@ -45,5 +45,7 @@ Run focused specs with `devtool cr spec spec/name_spec.cr`. GPU specs may remain
 - `TokenTrie`, `ConstrainedDecoding`, and `JSONConstraint` are reusable grammar/logit-mask seams; keep tokenizer-specific text handling outside the sampler.
 - `PrefixStateCache` permits exact-prefix reuse only. `KVCacheBase` joins float and grouped-int8 cached attention; eviction preserves sinks and absolute positions.
 - `KVCompressor` is opt-in and must not change default cache retention. `ConvRingCache` is the fixed-size streaming seam for `ShortConv`.
+- `numeric_formats.cr` contains Float16, BF16, grouped-int8, MXFP4, and FWHT scalar references. Matvec uses fixed-order Float64 accumulation.
+- `SHAINET_NATIVE_SGEMM=1` explicitly enables native AVX2 SGEMM through `CPUKernels`; default scalar multiplication must remain intact. `numeric_formats_benchmark.cr` records timings and `GC.stats.total_bytes` deltas.
 
 New general architecture layers are CPU-only unless CUDA forward/backward parity is implemented and verified. Unsupported new attention options on CUDA must fail explicitly rather than silently changing numerics.

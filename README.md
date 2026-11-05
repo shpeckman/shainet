@@ -294,6 +294,23 @@ results = retrieval.search(["inference"], [0.1, 0.9], 5)
 
 See `examples/retrieval.cr` for the complete hybrid path. Strict JSON handling uses Crystal's standard `JSON` parser; Stage 6 does not add another JSON parser.
 
+### Numeric formats and transforms
+
+`Float16.encode`/`decode` convert IEEE binary16 bits and Float32 with round-to-nearest-even. `BF16Weight` stores row-major BF16 weights and computes scalar matvec directly; `BF16Weight.from_safetensors` reuses the existing SafeTensors reader. `GroupedInt8` provides arbitrary-size per-group symmetric int8 quantization and dequantization.
+
+`MXFP4` decodes packed E2M1 nibbles and E8M0 scales. Even columns use low nibbles. `dequantize` returns a `SimpleMatrix`; `matvec` avoids a full dequantized copy. BF16 and MXFP4 matvec use fixed-order Float64 accumulation. `FWHT.transform` and `transform!` compute power-of-two Walsh-Hadamard transforms with optional inverse normalization.
+
+```crystal
+bits = SHAInet::Float16.encode(1.0_f32) # 0x3c00
+values = SHAInet::GroupedInt8.new(float_values, group_size: 32)
+restored = values.dequantize
+transformed = SHAInet::FWHT.transform([1.0, 2.0, 3.0, 4.0])
+```
+
+Set `SHAINET_NATIVE_SGEMM=1` to opt into the existing native AVX2 `CPUKernels.sgemm` path for contiguous `SimpleMatrix` multiplication. Without the environment flag or native library, scalar behavior remains unchanged.
+
+Run `devtool cr run benchmarks/numeric_formats_benchmark.cr` for reproducible matrix, reduction, elementwise, convolution, attention, quantized-matvec, and FWHT timings with GC allocation totals. Results use the default non-release configuration unless explicitly built otherwise.
+
 ### Load a GGUF model (Ollama blob or `.gguf` file)
 
 Point `HFLoader.load` at an Ollama model name, a blob, or a `.gguf` file. Q4_K and
