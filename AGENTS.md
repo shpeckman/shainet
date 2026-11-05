@@ -9,6 +9,7 @@ SHAInet is a Crystal 1.22.1+ neural-network shard. Core tensor storage is `Simpl
 - `src/shainet/transformer/`: transformer layers and model-facing attention paths.
 - `src/shainet/training/`: optimizers, schedules, clipping, and gradient checking.
 - `src/shainet/text/`: sampling, beam search, constrained decoding, and tokenizer implementations.
+- `src/shainet/retrieval/`: dense, BM25, reciprocal-rank-fusion, and hybrid retrieval.
 - `spec/`: unit, numerical, integration, device-parity, and end-to-end specs.
 - `ROADMAP.md`: independently mergeable engineering stages and verification gates.
 

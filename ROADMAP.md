@@ -174,27 +174,13 @@ Keep domain packages cohesive while building them on general tensor operations.
 
 ### Retrieval and text
 
-- [ ] Add cosine similarity, normalized dot product, and brute-force top-k vector search.
-- [ ] Add Okapi BM25 and reciprocal-rank fusion with configurable weights and rank constant.
-- [ ] Add hybrid embedding/lexical retrieval and a minimal end-to-end retrieval example.
-- [ ] Consider Levenshtein distance, bounded vocabulary spelling correction, balanced JSON extraction/repair, and Python-literal-to-JSON conversion as optional utilities.
-- [ ] Use Crystal's JSON parser for strict JSON handling instead of porting another parser.
+- [x] Add cosine similarity, normalized dot product, and brute-force top-k vector search.
+- [x] Add Okapi BM25 and reciprocal-rank fusion with configurable weights and rank constant.
+- [x] Add hybrid embedding/lexical retrieval and a minimal end-to-end retrieval example.
+- [x] Consider Levenshtein distance, bounded vocabulary spelling correction, balanced JSON extraction/repair, and Python-literal-to-JSON conversion as optional utilities.
+- [x] Use Crystal's JSON parser for strict JSON handling instead of porting another parser.
 
-### DSP and audio
-
-- [ ] Add radix-2 FFT, real FFT, inverse real FFT, normalization modes, and a defined non-power-of-two fallback.
-- [ ] Add HTK, Kaldi, and Slaney mel conversions and triangular mel filter banks.
-- [ ] Add STFT/spectrogram support with Hann windows, padding, pre-emphasis, power-to-dB, and log-mel normalization.
-- [ ] Add WAV loading and linear resampling.
-- [ ] Add compatible configuration presets and normalization utilities only when their model contract is documented and tested.
-
-### Images
-
-- [ ] Add per-channel image normalization and ViT patch extraction.
-- [ ] Add bilinear interpolation/resize with explicit coordinate and align-corners conventions.
-- [ ] Avoid new native image dependencies until a pure Crystal implementation or existing optional integration is justified.
-
-**Stage completion:** retrieval rankings and DSP/image outputs match known examples; FFT round trips and filter-bank boundaries are tested; audio/image pipelines run end to end; domain modules remain optional to use and do not fragment core tensor APIs.
+**Stage completion:** complete. Retrieval rankings match known examples; hybrid embedding/lexical retrieval runs end to end; domain modules remain optional to use and do not fragment core tensor APIs. Optional spelling and JSON-repair utilities were considered and remain unimplemented; strict JSON handling continues to use Crystal's standard parser.
 
 ## Stage 7: Performance and numeric formats
 
@@ -211,6 +197,26 @@ Add formats and optimized kernels after scalar correctness and representative be
 - [ ] Measure allocations and decode hot paths as well as throughput; do not trade away deterministic behavior without an explicit option.
 
 **Stage completion:** format codecs and kernels pass round-trip and reference fixtures, including Kimi operation fixtures for adapted code; optimized paths match scalar references within documented tolerances; benchmark methodology and results are reproducible.
+
+## Future: DSP, audio, and images
+
+These domain goals are deferred beyond Stage 6. Promote them into an engineering stage when a concrete use case and verification plan exist.
+
+### DSP and audio
+
+- [ ] Add radix-2 FFT, real FFT, inverse real FFT, normalization modes, and a defined non-power-of-two fallback.
+- [ ] Add HTK, Kaldi, and Slaney mel conversions and triangular mel filter banks.
+- [ ] Add STFT/spectrogram support with Hann windows, padding, pre-emphasis, power-to-dB, and log-mel normalization.
+- [ ] Add WAV loading and linear resampling.
+- [ ] Add compatible configuration presets and normalization utilities only when their model contract is documented and tested.
+
+### Images
+
+- [ ] Add per-channel image normalization and ViT patch extraction.
+- [ ] Add bilinear interpolation/resize with explicit coordinate and align-corners conventions.
+- [ ] Avoid new native image dependencies until a pure Crystal implementation or existing optional integration is justified.
+
+Future DSP/image completion requires known-output fixtures, FFT round trips and filter-bank boundaries, and end-to-end audio/image pipelines without new mandatory native dependencies.
 
 ## Reuse and non-goals
 

@@ -278,6 +278,22 @@ cache.compress!(512, strategy: :cosine, rope: true) # explicit opt-in
 
 `KVCompressor` also supports `:key_difference`, preserves temporal order and deterministic ties, and can un-rotate RoPE keys for scoring while returning original rotated rows. `ConvRingCache` stores fixed-size causal-convolution history and is accepted by `ShortConv#forward`. Snapshot/rollback remains unimplemented because no speculative-decoding path currently requires it.
 
+### Retrieval and text
+
+`SHAInet.cosine_similarity` and `normalized_dot_product` operate on finite, equally sized `Array(Float64)` vectors; zero-norm cosine similarity is zero. `BruteForceTopK` supports cosine, normalized-dot, and raw-dot rankings with score-descending, id-ascending ties.
+
+`BM25` indexes pre-tokenized documents with configurable `k1` and length normalization `b`. `ReciprocalRankFusion.fuse` combines id rankings with a configurable rank constant and per-ranking weights.
+
+```crystal
+retrieval = SHAInet::HybridRetrieval.new(
+  vector_weight: 1.0, lexical_weight: 1.0, rank_constant: 60)
+retrieval.add(1, ["crystal", "training"], [1.0, 0.0])
+retrieval.add(2, ["tokenization", "inference"], [0.0, 1.0])
+results = retrieval.search(["inference"], [0.1, 0.9], 5)
+```
+
+See `examples/retrieval.cr` for the complete hybrid path. Strict JSON handling uses Crystal's standard `JSON` parser; Stage 6 does not add another JSON parser.
+
 ### Load a GGUF model (Ollama blob or `.gguf` file)
 
 Point `HFLoader.load` at an Ollama model name, a blob, or a `.gguf` file. Q4_K and
