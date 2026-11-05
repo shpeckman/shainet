@@ -571,6 +571,29 @@ Decision heads are currently text-only and CPU-only. The backbone is frozen duri
 
 For explicit truncated-backbone experiments, `HFLoader.load_llama(path, max_layers: n)` loads only the first *n* transformer blocks. Truncated results are not equivalent to the full checkpoint; record the depth in evaluations.
 
+## Parameter-efficient fine-tuning foundations
+
+`SHAInet::PEFT::Adapter` defines the contract for adapter methods (LoRA and successors): a wrapped layer keeps its base weights frozen while the adapter contributes `forward_delta` in the forward pass and accumulates its own parameter gradients through `backward_delta`. `merge!` folds a trained adapter into the base weights for inference without added latency, and `unmerge!` restores them.
+
+```crystal
+abstract class MyAdapter < SHAInet::PEFT::Adapter
+  # implement forward_delta, backward_delta, merge!, unmerge!,
+  # merged?, kind, parameters, gradients, config_json
+end
+
+adapter.trainable_count
+adapter.apply_gradients(0.001, optimizer)
+adapter.zero_gradients
+
+SHAInet::PEFT::Checkpoint.save("adapter.json", adapter)
+config = SHAInet::PEFT::Checkpoint.load_into("adapter.json", adapter)
+kind, config, tensors = SHAInet::PEFT::Checkpoint.load("adapter.json")
+```
+
+Checkpoints are versioned atomic JSON holding the adapter kind, configuration, and tensors; base model weights stay in their existing formats. `SimpleMatrix#svd` and `#truncated_svd(rank)` provide the singular value decomposition used by SVD-based adapter initialization; both compute in Float64 and are initialization utilities, not differentiable operations.
+
+Concrete adapter methods are not included yet — see `TODO.md` for the dependency-ordered roadmap.
+
 ## Contributing
 
 1. Fork [https://github.com/BrightSec/shainet](https://github.com/BrightSec/shainet)

@@ -10,9 +10,14 @@ SHAInet is a Crystal 1.22.1+ neural-network shard. Core tensor storage is `Simpl
 - `src/shainet/training/`: optimizers, schedules, clipping, and gradient checking.
 - `src/shainet/text/`: sampling, beam search, constrained decoding, and tokenizer implementations.
 - `src/shainet/retrieval/`: dense, BM25, reciprocal-rank-fusion, and hybrid retrieval.
+- `src/shainet/peft/`: parameter-efficient fine-tuning foundations — the `Adapter` contract and versioned adapter checkpoints.
 - `src/shainet/decision/`: typed System One schemas, joint evidence-routing heads, RLCD-style training, calibration, conformal prediction, and checkpoints.
 - `spec/`: unit, numerical, integration, device-parity, and end-to-end specs.
 - `ROADMAP.md`: independently mergeable engineering stages and verification gates.
+
+## shainet-jit (JIT)
+
+local path: `~/.lib/crystal/shainet-jit`
 
 ## Commands
 
@@ -38,7 +43,9 @@ Run focused specs with `devtool cr spec spec/name_spec.cr`. GPU specs may remain
 
 ## Internal extension points
 
-- `LayerSupport` centralizes shared parameter updates and gradient accumulation for CPU layers.
+- `LayerSupport` centralizes shared parameter updates and gradient accumulation for CPU layers, including named parameter sets via `update_parameters`/`clear_gradients`.
+- `PEFT::Adapter` (`src/shainet/peft/adapter.cr`) is the parameter-efficient fine-tuning seam: wrapped layers keep base weights frozen, forward adds `forward_delta`, backward accumulates adapter gradients through `backward_delta`, and `merge!`/`unmerge!` fold adapters into base weights. `PEFT::Checkpoint` persists adapter kind, `config_json`, and tensors as versioned atomic JSON; base-layer identity lands with the LoRA wrapping work in TODO.md §1.
+- `SimpleMatrix#svd` and `#truncated_svd` (`src/shainet/math/svd.cr`) give the Float64 one-sided Jacobi SVD used for adapter initialization (PiSSA/CorDA/LoRA-GA). Init-only: there is no gradient path through the decomposition.
 - `AbstractConv` implements shared direct and grouped im2col+GEMM convolution; `AbstractPooling` shares pooling geometry and backward routing.
 - `RecurrentState` and `RecurrentSequence` define shared hidden/cell-state and batch-first BPTT conventions. Per-step cell forks share parameters and gradients with their driver.
 - `AttentionOps` is the shared CPU reference/online attention forward and backward seam. `MultiHeadAttention` integrates it while retaining existing CUDA defaults.

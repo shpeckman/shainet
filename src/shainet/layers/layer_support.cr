@@ -17,8 +17,20 @@ module SHAInet
       end
     end
 
+    def self.update_parameters(parameters : Hash(String, SimpleMatrix), gradients : Hash(String, SimpleMatrix),
+                               learning_rate : Float64, optimizer : Training::Optimizer?) : Nil
+      parameters.each do |name, weights|
+        gradient = gradients[name]? || raise ArgumentError.new("missing gradient for parameter #{name}")
+        update_parameter(weights, gradient, learning_rate, optimizer)
+      end
+    end
+
     def self.clear_gradient(gradient : SimpleMatrix) : Nil
       gradient.data.fill(0.0_f32)
+    end
+
+    def self.clear_gradients(gradients : Hash(String, SimpleMatrix)) : Nil
+      gradients.each_value { |gradient| clear_gradient(gradient) }
     end
 
     def self.accumulate_gradient(gradient : SimpleMatrix, update : SimpleMatrix) : Nil
