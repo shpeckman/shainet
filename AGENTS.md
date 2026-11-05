@@ -8,6 +8,7 @@ SHAInet is a Crystal 1.22.1+ neural-network shard. Core tensor storage is `Simpl
 - `src/shainet/layers/`: reusable CPU architecture layers and internal layer helpers.
 - `src/shainet/transformer/`: transformer layers and model-facing attention paths.
 - `src/shainet/training/`: optimizers, schedules, clipping, and gradient checking.
+- `src/shainet/text/`: sampling, beam search, constrained decoding, and tokenizer implementations.
 - `spec/`: unit, numerical, integration, device-parity, and end-to-end specs.
 - `ROADMAP.md`: independently mergeable engineering stages and verification gates.
 
@@ -40,5 +41,8 @@ Run focused specs with `devtool cr spec spec/name_spec.cr`. GPU specs may remain
 - `RecurrentState` and `RecurrentSequence` define shared hidden/cell-state and batch-first BPTT conventions. Per-step cell forks share parameters and gradients with their driver.
 - `AttentionOps` is the shared CPU reference/online attention forward and backward seam. `MultiHeadAttention` integrates it while retaining existing CUDA defaults.
 - `SimpleMatrix#im2col` and `#col2im` define dilated window extraction and scatter-add inversion; `GradMatrix#im2col` uses the same inversion for backward.
+- `TokenTrie`, `ConstrainedDecoding`, and `JSONConstraint` are reusable grammar/logit-mask seams; keep tokenizer-specific text handling outside the sampler.
+- `PrefixStateCache` permits exact-prefix reuse only. `KVCacheBase` joins float and grouped-int8 cached attention; eviction preserves sinks and absolute positions.
+- `KVCompressor` is opt-in and must not change default cache retention. `ConvRingCache` is the fixed-size streaming seam for `ShortConv`.
 
 New general architecture layers are CPU-only unless CUDA forward/backward parity is implemented and verified. Unsupported new attention options on CUDA must fail explicitly rather than silently changing numerics.

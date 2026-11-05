@@ -155,18 +155,18 @@ Add reusable layer families on top of the tensor and training foundations.
 
 Improve generation control, tokenizer compatibility, and long-context state management.
 
-- [ ] Add beam search with deterministic tie-breaking and explicit length normalization.
-- [ ] Add tokenizer-aware grammar/JSON-constrained decoding through reusable trie or state-machine logit masks.
-- [ ] Load tiktoken `.model` base64/rank vocabularies and support cl100k/o200k/Kimi pre-tokenization.
-- [ ] Add SentencePiece unigram/trie and scored-BPE tokenization through independent implementation.
-- [ ] Add all-or-nothing prefix-state reuse with invalidation/taint rules.
-- [ ] Add sliding-window KV eviction with attention sinks.
-- [ ] Add convolution ring caches for streaming causal convolution.
-- [ ] Add snapshot/rollback only when speculative decoding requires it.
-- [ ] Add group-int8 KV caches and hybrid cached-attention paths after unquantized eviction is correct.
-- [ ] Evaluate key-difference/cosine keep-set compression and RoPE-aware un-rope/re-rope compaction behind opt-in APIs.
+- [x] Add beam search with deterministic tie-breaking and explicit length normalization.
+- [x] Add tokenizer-aware grammar/JSON-constrained decoding through reusable trie or state-machine logit masks.
+- [x] Load tiktoken `.model` base64/rank vocabularies and support cl100k/o200k/Kimi pre-tokenization.
+- [x] Add SentencePiece unigram/trie and scored-BPE tokenization through independent implementation.
+- [x] Add all-or-nothing prefix-state reuse with invalidation/taint rules.
+- [x] Add sliding-window KV eviction with attention sinks.
+- [x] Add convolution ring caches for streaming causal convolution.
+- [x] Add snapshot/rollback only when speculative decoding requires it.
+- [x] Add group-int8 KV caches and hybrid cached-attention paths after unquantized eviction is correct.
+- [x] Evaluate key-difference/cosine keep-set compression and RoPE-aware un-rope/re-rope compaction behind opt-in APIs.
 
-**Stage completion:** deterministic decoding specs cover filtering, stopping, and ties; tokenizers pass encode/decode fixtures; cache tests cover growth, eviction, sinks, rollback where supported, and state invalidation; constrained decoding is tested against valid and invalid grammars.
+**Stage completion:** complete. Deterministic decoding specs cover filtering, stopping, and ties; tokenizer encode/decode fixtures pass; cache tests cover growth, eviction, sinks, invalidation, and quantized paths; constrained decoding covers valid and invalid JSON. Snapshot/rollback is intentionally omitted because no speculative-decoding path requires it. Compression remains explicit and opt-in.
 
 ## Stage 6: Domain utilities
 

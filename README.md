@@ -246,6 +246,38 @@ mha = SHAInet::MultiHeadAttention.new(256, 8, relative,
 
 Relative distances are key position minus query position, clipped to `max_distance`. Sliding masks accept absolute query/key offsets for cached or chunked coordinates. `TransformerBlock` forwards the same optional relative-position, softcap, and online-attention settings. These new attention options reject CUDA inputs explicitly until device parity is implemented.
 
+### Inference controls and state management
+
+`BeamSearch` accepts a sequence-to-logits block, stops at EOS or `max_length`, breaks equal-score candidates by lexicographic token order, and applies `score / sequence_length ** length_penalty` during ranking.
+
+```crystal
+beam = SHAInet::BeamSearch.new(beam_width: 4, max_length: 64, eos_id: eos_id)
+tokens = beam.search(prompt_ids) { |sequence| model_logits(sequence) }
+```
+
+`TokenTrie` stores allowed token-id sequences and returns valid next ids for exact prefixes. `ConstrainedDecoding.mask!` applies any allowed-id set to sampler logits. `JSONConstraint` validates incremental JSON and filters arbitrary tokenizer pieces without splitting tokens into characters:
+
+```crystal
+json = SHAInet::JSONConstraint.new
+allowed = json.allowed_token_ids(generated_text, tokenizer_pieces)
+SHAInet::ConstrainedDecoding.mask!(logits, allowed)
+json.complete?(generated_text) # safe EOS condition
+```
+
+`TiktokenTokenizer.from_file(path, preset)` loads base64/rank `.model` files. Presets are `:cl100k`, `:o200k`, and `:kimi`; literal special tokens can be registered explicitly. `SentencePieceTokenizer` supports `:unigram` Viterbi, greedy `:trie`, and score-ordered `:bpe` encoding from piece/score arrays, with `▁` space markers and optional unknown-token fallback.
+
+`PrefixStateCache(T)` returns states only for exact token-prefix matches. `invalidate` removes one prefix; `taint!` clears all states and advances its generation after compatibility-affecting changes.
+
+`SlidingKVCache` preserves the first `sink_size` rows and newest `window_size` rows while tracking absolute positions. `Int8KVCache` applies per-group symmetric int8 quantization before the same eviction. `CachedAttention.decode` runs single-token attention through either cache type.
+
+```crystal
+cache = SHAInet::SlidingKVCache.new(head_dim: 128, window_size: 1024, sink_size: 4)
+output = SHAInet::CachedAttention.decode(cache, query, key, value)
+cache.compress!(512, strategy: :cosine, rope: true) # explicit opt-in
+```
+
+`KVCompressor` also supports `:key_difference`, preserves temporal order and deterministic ties, and can un-rotate RoPE keys for scoring while returning original rotated rows. `ConvRingCache` stores fixed-size causal-convolution history and is accepted by `ShortConv#forward`. Snapshot/rollback remains unimplemented because no speculative-decoding path currently requires it.
+
 ### Load a GGUF model (Ollama blob or `.gguf` file)
 
 Point `HFLoader.load` at an Ollama model name, a blob, or a `.gguf` file. Q4_K and
