@@ -65,61 +65,48 @@ module SHAInet
     end
   end
 
-  # Returns the first half of *m* multiplied by the sigmoid of the second half.
-  # Splits along *axis* 0 (rows) or 1 (columns); the split dimension must be even.
-  def self.glu(m : SimpleMatrix, axis : Int32 = 1) : SimpleMatrix
-    unless axis == 0 || axis == 1
-      raise ArgumentError.new("axis must be 0 or 1")
+  # Returns the first half of *m* multiplied by *gate* applied to the second half.
+  # Splits along *axis*; the split dimension must be non-zero and even.
+  def self.glu(m : SimpleMatrix, axis : Int32 = 1, gate : ActivationFunction = SHAInet.sigmoid) : SimpleMatrix
+    unless 0 <= axis < m.rank
+      raise ArgumentError.new("axis out of bounds")
     end
-    split = axis == 0 ? m.rows : m.cols
+    split = m.shape[axis]
     if split == 0 || split.odd?
       raise ArgumentError.new("GLU split dimension must be non-zero and even")
     end
 
     half = split // 2
-    result = axis == 0 ? SimpleMatrix.new(half, m.cols) : SimpleMatrix.new(m.rows, half)
-    result.rows.times do |i|
-      result.cols.times do |j|
-        if axis == 0
-          gate = m[i + half, j]
-          result[i, j] = m[i, j] * _sigmoid(gate)
-        else
-          gate = m[i, j + half]
-          result[i, j] = m[i, j] * _sigmoid(gate)
-        end
-      end
+    values = m.slice(axis, 0, half).to_flat_a
+    gates = m.slice(axis, half, half).to_flat_a
+    result = SimpleMatrix.new(m.slice(axis, 0, half).shape)
+    values.each_with_index do |value, index|
+      result.data[index] = (value * gate.call(gates[index])[0]).to_f32
     end
     result
   end
 
   # Returns the bounded SiTU-GLU combination of two halves of *m*.
-  # Splits along *axis* 0 (rows) or 1 (columns). Both bounds must be finite and positive.
+  # Splits along *axis*. Both bounds must be finite and positive.
   def self.situ_glu(m : SimpleMatrix, axis : Int32 = 1, bound1 : Float64 = 3.0, bound2 : Float64 = 3.0) : SimpleMatrix
-    unless axis == 0 || axis == 1
-      raise ArgumentError.new("axis must be 0 or 1")
+    unless 0 <= axis < m.rank
+      raise ArgumentError.new("axis out of bounds")
     end
     unless bound1.finite? && bound1 > 0.0 && bound2.finite? && bound2 > 0.0
       raise ArgumentError.new("SiTU-GLU bounds must be finite and positive")
     end
-    split = axis == 0 ? m.rows : m.cols
+    split = m.shape[axis]
     if split == 0 || split.odd?
       raise ArgumentError.new("SiTU-GLU split dimension must be non-zero and even")
     end
 
     half = split // 2
-    result = axis == 0 ? SimpleMatrix.new(half, m.cols) : SimpleMatrix.new(m.rows, half)
-    result.rows.times do |i|
-      result.cols.times do |j|
-        if axis == 0
-          gate = m[i, j]
-          up = m[i + half, j]
-        else
-          gate = m[i, j]
-          up = m[i, j + half]
-        end
-        gated = bound1 * Math.tanh(gate / bound1) * _sigmoid(gate)
-        result[i, j] = gated * bound2 * Math.tanh(up / bound2)
-      end
+    gates = m.slice(axis, 0, half).to_flat_a
+    values = m.slice(axis, half, half).to_flat_a
+    result = SimpleMatrix.new(m.slice(axis, 0, half).shape)
+    gates.each_with_index do |gate, index|
+      gated = bound1 * Math.tanh(gate / bound1) * _sigmoid(gate)
+      result.data[index] = (gated * bound2 * Math.tanh(values[index] / bound2)).to_f32
     end
     result
   end

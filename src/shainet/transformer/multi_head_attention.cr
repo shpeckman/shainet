@@ -83,9 +83,24 @@ module SHAInet
 
     getter w_q, w_k, w_v, w_o
     property g_w_q, g_w_k, g_w_v, g_w_o
+    getter relative_position_bias : RelativePositionBias?
+    getter logit_softcap : Float64?
+    getter online_block_size : Int32?
+    @mask : SimpleMatrix? = nil
 
-    def initialize(@d_model : Int32, @num_heads : Int32)
+    def initialize(@d_model : Int32, @num_heads : Int32,
+                   @relative_position_bias : RelativePositionBias? = nil,
+                   @logit_softcap : Float64? = nil, @online_block_size : Int32? = nil)
       @head_dim = (@d_model // @num_heads)
+      if relative = @relative_position_bias
+        raise ArgumentError.new("relative-position head count mismatch") unless relative.num_heads == @num_heads
+      end
+      if cap = @logit_softcap
+        raise ArgumentError.new("logit softcap must be finite and positive") unless cap.finite? && cap > 0.0
+      end
+      if block = @online_block_size
+        raise ArgumentError.new("online block size must be positive") unless block > 0
+      end
       # Use CudaMatrix when CUDA is available for better performance
       mat_klass = CUDA.fully_available? ? CudaMatrix : SimpleMatrix
 
@@ -176,6 +191,9 @@ module SHAInet
 
     # GPU path - all operations with CudaMatrix - optimized with workspace pool
     def forward(x : CudaMatrix, mask : CudaMatrix? = nil) : CudaMatrix
+      if @relative_position_bias || @logit_softcap || @online_block_size
+        raise ArgumentError.new("relative-position bias, logit softcap, and online attention are CPU-only")
+      end
       @x = x
 
       # Ensure workspace matrices are allocated for this batch size
@@ -275,6 +293,7 @@ module SHAInet
     # CPU path - all operations with SimpleMatrix
     def forward(x : SimpleMatrix, mask : SimpleMatrix? = nil) : SimpleMatrix
       @x = x
+      @mask = mask
 
       # Compute Q, K, V projections - CPU path
       q = x * @w_q.as(SimpleMatrix)
@@ -296,23 +315,11 @@ module SHAInet
         @q_heads << qs
         @k_heads << ks
         @v_heads << vs
-
-        # Attention computation - all CPU
-        ks_transposed = ks.transpose
-        scores = qs * ks_transposed * (1.0 / Math.sqrt(@head_dim.to_f))
-
-        # Apply mask if provided
-        if m = mask
-          raise "mask size mismatch" unless m.rows == scores.rows && m.cols == scores.cols
-          scores = scores + m
-        end
-
-        # CPU softmax in-place
-        scores.softmax_rows!
-        @attn << scores
-
-        # Compute output for this head
-        outputs << (scores * vs)
+        relative = @relative_position_bias
+        bias = relative ? relative.forward_head(x.rows, x.rows, h) : nil
+        attention = AttentionOps.forward(qs, ks, vs, mask, bias, @logit_softcap, @online_block_size)
+        @attn << attention[:weights]
+        outputs << attention[:output]
       end
 
       # Concatenate heads - CPU
@@ -350,32 +357,18 @@ module SHAInet
 
       @num_heads.times do |h|
         d_out_h = d_concat.slice_cols(h * @head_dim, @head_dim)
-
-        # Gradient w.r.t. V
-        d_v = @attn[h].as(SimpleMatrix).transpose * d_out_h
-        d_v_heads << d_v
-
-        # Gradient w.r.t. attention weights
-        d_attn = d_out_h * @v_heads[h].as(SimpleMatrix).transpose
-
-        # Gradient w.r.t. scores (softmax backward)
-        d_scores = mat_klass.new(d_attn.rows, d_attn.cols)
-        softmax_backward(d_attn, @attn[h].as(SimpleMatrix), d_scores)
-
-        # Scale by 1/sqrt(d_k) in-place
-        scale = 1.0 / Math.sqrt(@head_dim.to_f)
-        d_scores.rows.times do |i|
-          d_scores.cols.times do |j|
-            d_scores[i, j] *= scale
-          end
+        relative = @relative_position_bias
+        bias = relative ? relative.forward_head(x.rows, x.rows, h) : nil
+        gradients = AttentionOps.backward(
+          @q_heads[h].as(SimpleMatrix), @k_heads[h].as(SimpleMatrix), @v_heads[h].as(SimpleMatrix),
+          @attn[h].as(SimpleMatrix), d_out_h, @mask, bias, @logit_softcap
+        )
+        d_q_heads << gradients[:dq]
+        d_k_heads << gradients[:dk]
+        d_v_heads << gradients[:dv]
+        if relative && (d_bias = gradients[:d_bias])
+          relative.backward_head(d_bias, h)
         end
-
-        # Gradients w.r.t. Q and K
-        d_q = d_scores * @k_heads[h].as(SimpleMatrix)
-        d_k = d_scores.transpose * @q_heads[h].as(SimpleMatrix)
-
-        d_q_heads << d_q
-        d_k_heads << d_k
       end
 
       # Concatenate head gradients
@@ -519,6 +512,7 @@ module SHAInet
       update_parameter(@w_k, @g_w_k, lr, optimizer)
       update_parameter(@w_v, @g_w_v, lr, optimizer)
       update_parameter(@w_o, @g_w_o, lr, optimizer)
+      @relative_position_bias.try(&.apply_gradients(lr, optimizer))
       zero_gradients(CudaMatrix)
       update_transposes
     end
@@ -529,6 +523,7 @@ module SHAInet
       update_parameter(@w_k, @g_w_k, lr, optimizer)
       update_parameter(@w_v, @g_w_v, lr, optimizer)
       update_parameter(@w_o, @g_w_o, lr, optimizer)
+      @relative_position_bias.try(&.apply_gradients(lr, optimizer))
       zero_gradients(SimpleMatrix)
       update_transposes
     end
@@ -557,6 +552,7 @@ module SHAInet
       @g_w_k.as(CudaMatrix).zero!
       @g_w_v.as(CudaMatrix).zero!
       @g_w_o.as(CudaMatrix).zero!
+      @relative_position_bias.try(&.zero_gradients)
     end
 
     # CPU path for zeroing gradients
@@ -565,6 +561,7 @@ module SHAInet
       @g_w_k = SimpleMatrix.zeros(@d_model, @d_model)
       @g_w_v = SimpleMatrix.zeros(@d_model, @d_model)
       @g_w_o = SimpleMatrix.zeros(@d_model, @d_model)
+      @relative_position_bias.try(&.zero_gradients)
     end
 
     # Recompute cached transpose matrices based on current weights.

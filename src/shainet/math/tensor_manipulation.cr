@@ -163,17 +163,18 @@ module SHAInet
 
     # Returns an im2col matrix from `[batch, channels, spatial...]` input.
     # Each output row contains one batch/spatial window; columns contain channel/kernel values.
-    def im2col(kernel_shape : Array(Int32), stride : Int32 = 1, padding : Int32 = 0) : SimpleMatrix
+    def im2col(kernel_shape : Array(Int32), stride : Int32 = 1, padding : Int32 = 0, dilation : Int32 = 1) : SimpleMatrix
       current = shape
       if current.size < 3 || kernel_shape.size != current.size - 2
         raise ArgumentError.new("im2col expects [batch, channels, spatial...] and one kernel dim per spatial axis")
       end
-      if stride <= 0 || padding < 0 || kernel_shape.any?(&.< 1)
-        raise ArgumentError.new("stride and kernel dims must be positive; padding must be non-negative")
+      if stride <= 0 || padding < 0 || dilation <= 0 || kernel_shape.any?(&.< 1)
+        raise ArgumentError.new("stride, dilation, and kernel dims must be positive; padding must be non-negative")
       end
       output_spatial = Array(Int32).new(kernel_shape.size)
       kernel_shape.each_with_index do |kernel, axis|
-        output = (current[axis + 2] + 2 * padding - kernel) // stride + 1
+        effective_kernel = dilation * (kernel - 1) + 1
+        output = (current[axis + 2] + 2 * padding - effective_kernel) // stride + 1
         raise ArgumentError.new("kernel exceeds padded input") if output <= 0
         output_spatial << output
       end
@@ -194,12 +195,12 @@ module SHAInet
             kernel_size.times do |kernel_index|
               value = 0.0
               in_bounds = true
-              source = Array(Int32).new(current.size + 2)
+              source = Array(Int32).new(current.size)
               source << b
               source << channel
               kernel_shape.each_index do |axis|
                 kernel_coord = (kernel_index // logical_kernel_strides[axis]) % kernel_shape[axis]
-                input_coord = output_coords[axis] * stride + kernel_coord - padding
+                input_coord = output_coords[axis] * stride + kernel_coord * dilation - padding
                 if input_coord < 0 || input_coord >= current[axis + 2]
                   in_bounds = false
                   break
@@ -215,9 +216,65 @@ module SHAInet
       result
     end
 
+    # Scatter-adds im2col columns into *input_shape*, including overlapping windows.
+    def col2im(input_shape : Array(Int32), kernel_shape : Array(Int32), stride : Int32 = 1,
+               padding : Int32 = 0, dilation : Int32 = 1) : SimpleMatrix
+      if input_shape.size < 3 || kernel_shape.size != input_shape.size - 2
+        raise ArgumentError.new("col2im expects [batch, channels, spatial...] and one kernel dim per spatial axis")
+      end
+      if stride <= 0 || padding < 0 || dilation <= 0 || kernel_shape.any?(&.< 1)
+        raise ArgumentError.new("stride, dilation, and kernel dims must be positive; padding must be non-negative")
+      end
+      output_spatial = kernel_shape.each_with_index.map do |kernel, axis|
+        effective_kernel = dilation * (kernel - 1) + 1
+        output = (input_shape[axis + 2] + 2 * padding - effective_kernel) // stride + 1
+        raise ArgumentError.new("kernel exceeds padded input") if output <= 0
+        output
+      end.to_a
+      batch = input_shape[0]
+      channels = input_shape[1]
+      windows = output_spatial.product
+      kernel_size = kernel_shape.product
+      unless shape == [batch * windows, channels * kernel_size]
+        raise ArgumentError.new("col2im column shape mismatch")
+      end
+
+      result = SimpleMatrix.new(input_shape)
+      output_strides = SimpleMatrix.contiguous_strides(output_spatial)
+      kernel_strides = SimpleMatrix.contiguous_strides(kernel_shape)
+      columns = to_flat_a
+      batch.times do |b|
+        windows.times do |window|
+          output_coords = output_spatial.each_with_index.map do |_dim, axis|
+            (window // output_strides[axis]) % output_spatial[axis]
+          end.to_a
+          channels.times do |channel|
+            kernel_size.times do |kernel_index|
+              source = [b, channel]
+              in_bounds = true
+              kernel_shape.each_index do |axis|
+                kernel_coord = (kernel_index // kernel_strides[axis]) % kernel_shape[axis]
+                input_coord = output_coords[axis] * stride + kernel_coord * dilation - padding
+                if input_coord < 0 || input_coord >= input_shape[axis + 2]
+                  in_bounds = false
+                  break
+                end
+                source << input_coord
+              end
+              if in_bounds
+                column_index = (b * windows + window) * channels * kernel_size + channel * kernel_size + kernel_index
+                result.set_at(source, result.value_at(source) + columns[column_index])
+              end
+            end
+          end
+        end
+      end
+      result
+    end
+
     # :ditto:
-    def unfold(kernel_shape : Array(Int32), stride : Int32 = 1, padding : Int32 = 0) : SimpleMatrix
-      im2col(kernel_shape, stride, padding)
+    def unfold(kernel_shape : Array(Int32), stride : Int32 = 1, padding : Int32 = 0, dilation : Int32 = 1) : SimpleMatrix
+      im2col(kernel_shape, stride, padding, dilation)
     end
 
     private def validate_tensor_axis(axis : Int32)

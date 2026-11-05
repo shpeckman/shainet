@@ -176,7 +176,7 @@ Views share their source storage, so mutations are visible through both. Use `va
 
 ### Training schedules and optimizers
 
-Training supports SGD/momentum, AdamW, RMSprop, Adagrad, and experimental Muon. Shared optimizer state covers dense, embedding, and transformer parameters. Global-norm clipping uses `clip_threshold`:
+Training supports SGD/momentum, AdamW, RMSprop, Adagrad, and experimental Muon. Shared optimizer state covers dense, embedding, transformer, convolution, and recurrent parameters, including contiguous N-D weights. Global-norm clipping uses `clip_threshold`:
 
 ```crystal
 net.learning_rate_schedule = SHAInet::Training::LearningRateSchedule.warmup_cosine(
@@ -195,6 +195,56 @@ report = SHAInet::Training::GradientCheck.check(input) do |value|
 end
 puts report[:max_absolute_error]
 ```
+
+### General architecture layers
+
+Stage 4 layers use `SimpleMatrix` and provide explicit `forward`, `backward`, `zero_gradients`, and `apply_gradients` where trainable. They are currently CPU-only; existing transformer CUDA defaults are unchanged.
+
+`BatchNorm` and `GroupNorm` accept batch-first N-D input with channel axis 1 by default. `BatchNorm#train!` uses population batch statistics and updates running mean and unbiased running variance with the configured momentum; `#eval!` uses running statistics. `GroupNorm` normalizes each sample over its channel groups and spatial dimensions without running state.
+
+```crystal
+norm = SHAInet::BatchNorm.new(8, momentum: 0.1)
+y = norm.forward(x)
+norm.eval!
+inference_y = norm.forward(x)
+
+groups = SHAInet::GroupNorm.new(8, 2)
+y = groups.forward(x)
+```
+
+`SHAInet.glu(x, axis, SHAInet.silu)` and `situ_glu` split any axis evenly; the default GLU gate remains sigmoid. `StatisticsPooling` maps `[batch, time, features]` to concatenated mean and standard deviation, with optional nonnegative `[batch, time]` weights. `AttentionStatisticsPooling` learns those weights with a trainable temporal scorer.
+
+`Conv1d` and `Conv2d` support direct and `implementation: :im2col` paths, bias, stride, zero padding, dilation, groups, depthwise and pointwise cases, and channels-first or channels-last layouts. Causal `Conv1d` derives left padding from dilation and kernel size and produces `(input_length - 1) // stride + 1` positions. Backward includes input, weight, and bias gradients.
+
+```crystal
+conv = SHAInet::Conv2d.new(3, 8, 3, padding: 1, implementation: :im2col)
+y = conv.forward(x) # x: [batch, 3, height, width]
+dx = conv.backward(d_y)
+conv.apply_gradients(0.001, SHAInet::Training::AdamW.new)
+```
+
+`MaxPool1d`/`MaxPool2d` route ties to the first row-major maximum. `AveragePool1d`/`AveragePool2d` exclude padded values from the divisor. A max window with no valid values returns `-Infinity`; an empty average window returns zero. NaN input propagates. All pooling layers support both channel layouts.
+
+Recurrent cells accept `[batch, features]`; `LSTM`, `GRU`, and `SimpleRNN` drivers accept `[batch, time, features]` and return output plus `RecurrentState`. LSTM state contains both `h` and `c`; other cells use `h`. Empty sequences return empty output and unchanged state. `BiLSTM` concatenates forward and backward hidden features and returns both final states. Driver backward performs full backpropagation through time.
+
+```crystal
+lstm = SHAInet::LSTM.new(10, 20)
+output, state = lstm.forward(SHAInet::SimpleMatrix.new([8, 15, 10]))
+dx, initial_state_gradient = lstm.backward(d_output)
+```
+
+Attention accepts 2-D per-head query, key, and value matrices. Masks and relative biases are `[query, key]`; fully masked rows produce zero probabilities and output. Softcap applies to scaled query/key logits before bias and mask addition. Online attention uses positive key-block sizes.
+
+```crystal
+mask = SHAInet.sliding_window_mask(query_length, key_length, window: 64)
+output = SHAInet.attention(q, k, v, mask: mask, softcap: 20.0, online_block_size: 32)
+
+relative = SHAInet::RelativePositionBias.new(num_heads: 8, max_distance: 16)
+mha = SHAInet::MultiHeadAttention.new(256, 8, relative,
+  logit_softcap: 20.0, online_block_size: 32)
+```
+
+Relative distances are key position minus query position, clipped to `max_distance`. Sliding masks accept absolute query/key offsets for cached or chunked coordinates. `TransformerBlock` forwards the same optional relative-position, softcap, and online-attention settings. These new attention options reject CUDA inputs explicitly until device parity is implemented.
 
 ### Load a GGUF model (Ollama blob or `.gguf` file)
 

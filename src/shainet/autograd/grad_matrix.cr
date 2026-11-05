@@ -360,7 +360,7 @@ module SHAInet
         result.set_non_leaf!
 
         if result.requires_grad?
-          n = @rows * @cols
+          n = size
           result.backward_fn = -> do
             if out_grad = result.grad
               # Gradient flows to all elements equally
@@ -381,7 +381,7 @@ module SHAInet
         result.set_non_leaf!
 
         if result.requires_grad?
-          n = @rows * @cols
+          n = size
           result.backward_fn = -> do
             if out_grad = result.grad
               scale = out_grad[0] / n

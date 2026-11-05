@@ -24,6 +24,16 @@ module SHAInet
       @data = Array(Float32).new(shape.product, init.to_f32)
     end
 
+    # Creates an N-D matrix filled with zeros.
+    def self.zeros(shape : Array(Int32)) : SimpleMatrix
+      new(shape, 0.0)
+    end
+
+    # Creates an N-D matrix filled with ones.
+    def self.ones(shape : Array(Int32)) : SimpleMatrix
+      new(shape, 1.0)
+    end
+
     # :nodoc:
     def initialize(@data : Array(Float32), @tensor_shape : Array(Int32),
                    @tensor_strides : Array(Int32), @storage_offset : Int32)

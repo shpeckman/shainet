@@ -21,10 +21,16 @@ module SHAInet
         key = weights.object_id
         state = states[key]?
         if state.nil? || state.shape != weights.shape
-          state = SimpleMatrix.zeros(weights.rows, weights.cols)
+          state = SimpleMatrix.new(weights.shape)
           states[key] = state
         end
         state
+      end
+
+      private def validate_update(weights : SimpleMatrix, gradients : SimpleMatrix) : Nil
+        unless weights.shape == gradients.shape && weights.contiguous? && gradients.contiguous?
+          raise ArgumentError.new("weights and gradients must have matching contiguous shapes")
+        end
       end
     end
 
@@ -36,18 +42,17 @@ module SHAInet
       end
 
       def update!(weights : SimpleMatrix, gradients : SimpleMatrix, learning_rate : Float64) : Nil
+        validate_update(weights, gradients)
         if @momentum == 0.0
-          weights.rows.times do |i|
-            weights.cols.times { |j| weights[i, j] -= learning_rate * gradients[i, j] }
+          weights.data.each_index do |index|
+            weights.data[index] = (weights.data[index] - learning_rate * gradients.data[index]).to_f32
           end
         else
           velocity = state_for(@velocity, weights)
-          weights.rows.times do |i|
-            weights.cols.times do |j|
-              update = @momentum * velocity[i, j] + gradients[i, j]
-              velocity[i, j] = update
-              weights[i, j] -= learning_rate * update
-            end
+          weights.data.each_index do |index|
+            update = @momentum * velocity.data[index] + gradients.data[index]
+            velocity.data[index] = update.to_f32
+            weights.data[index] = (weights.data[index] - learning_rate * update).to_f32
           end
         end
       end
@@ -67,6 +72,7 @@ module SHAInet
 
       def update!(weights : SimpleMatrix, gradients : SimpleMatrix, learning_rate : Float64) : Nil
         validate_parameters
+        validate_update(weights, gradients)
         first = state_for(@first, weights)
         second = state_for(@second, weights)
         key = weights.object_id
@@ -74,16 +80,14 @@ module SHAInet
         @steps[key] = step
         correction1 = 1.0 - @beta1**step
         correction2 = 1.0 - @beta2**step
-        weights.rows.times do |i|
-          weights.cols.times do |j|
-            gradient = gradients[i, j]
-            m = @beta1 * first[i, j] + (1.0 - @beta1) * gradient
-            v = @beta2 * second[i, j] + (1.0 - @beta2) * gradient * gradient
-            first[i, j] = m
-            second[i, j] = v
-            update = (m / correction1) / (Math.sqrt(v / correction2) + @epsilon)
-            weights[i, j] -= learning_rate * (update + @weight_decay * weights[i, j])
-          end
+        weights.data.each_index do |index|
+          gradient = gradients.data[index].to_f64
+          m = @beta1 * first.data[index] + (1.0 - @beta1) * gradient
+          v = @beta2 * second.data[index] + (1.0 - @beta2) * gradient * gradient
+          first.data[index] = m.to_f32
+          second.data[index] = v.to_f32
+          update = (m / correction1) / (Math.sqrt(v / correction2) + @epsilon)
+          weights.data[index] = (weights.data[index] - learning_rate * (update + @weight_decay * weights.data[index])).to_f32
         end
       end
 
@@ -105,14 +109,13 @@ module SHAInet
       end
 
       def update!(weights : SimpleMatrix, gradients : SimpleMatrix, learning_rate : Float64) : Nil
+        validate_update(weights, gradients)
         squares = state_for(@squares, weights)
-        weights.rows.times do |i|
-          weights.cols.times do |j|
-            gradient = gradients[i, j]
-            average = @decay * squares[i, j] + (1.0 - @decay) * gradient * gradient
-            squares[i, j] = average
-            weights[i, j] -= learning_rate * gradient / (Math.sqrt(average) + @epsilon)
-          end
+        weights.data.each_index do |index|
+          gradient = gradients.data[index].to_f64
+          average = @decay * squares.data[index] + (1.0 - @decay) * gradient * gradient
+          squares.data[index] = average.to_f32
+          weights.data[index] = (weights.data[index] - learning_rate * gradient / (Math.sqrt(average) + @epsilon)).to_f32
         end
       end
     end
@@ -125,19 +128,18 @@ module SHAInet
       end
 
       def update!(weights : SimpleMatrix, gradients : SimpleMatrix, learning_rate : Float64) : Nil
+        validate_update(weights, gradients)
         squares = state_for(@squares, weights)
-        weights.rows.times do |i|
-          weights.cols.times do |j|
-            gradient = gradients[i, j]
-            accumulated = squares[i, j] + gradient * gradient
-            squares[i, j] = accumulated
-            weights[i, j] -= learning_rate * gradient / (Math.sqrt(accumulated) + @epsilon)
-          end
+        weights.data.each_index do |index|
+          gradient = gradients.data[index].to_f64
+          accumulated = squares.data[index] + gradient * gradient
+          squares.data[index] = accumulated.to_f32
+          weights.data[index] = (weights.data[index] - learning_rate * gradient / (Math.sqrt(accumulated) + @epsilon)).to_f32
         end
       end
     end
 
-    # Applies Muon orthogonalized momentum to hidden matrices and SGD to vectors.
+    # Applies Muon orthogonalized momentum to hidden matrices and SGD to other tensors.
     class Muon < Optimizer
       def initialize(@momentum : Float64 = 0.95, @weight_decay : Float64 = 0.0,
                      @nesterov : Bool = true, @ns_steps : Int32 = 5,
@@ -152,11 +154,10 @@ module SHAInet
       end
 
       def update!(weights : SimpleMatrix, gradients : SimpleMatrix, learning_rate : Float64) : Nil
-        if weights.rows <= 1 || weights.cols <= 1
-          weights.rows.times do |i|
-            weights.cols.times do |j|
-              weights[i, j] -= @fallback_learning_rate * (gradients[i, j] + @weight_decay * weights[i, j])
-            end
+        validate_update(weights, gradients)
+        if weights.rank != 2 || weights.rows <= 1 || weights.cols <= 1
+          weights.data.each_index do |index|
+            weights.data[index] = (weights.data[index] - @fallback_learning_rate * (gradients.data[index] + @weight_decay * weights.data[index])).to_f32
           end
           return
         end

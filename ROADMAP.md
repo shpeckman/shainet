@@ -125,31 +125,31 @@ Add reusable layer families on top of the tensor and training foundations.
 
 ### Normalization and gating
 
-- [ ] Add inference and training BatchNorm with documented running-statistics behavior.
-- [ ] Add GroupNorm.
-- [ ] Add general GLU variants and statistics-pooling heads, including weighted statistics pooling.
+- [x] Add inference and training BatchNorm with documented running-statistics behavior.
+- [x] Add GroupNorm.
+- [x] Add general GLU variants and statistics-pooling heads, including weighted statistics pooling.
 
 ### Convolution and pooling
 
-- [ ] Implement direct scalar Conv1d/Conv2d references, then im2col+GEMM paths.
-- [ ] Support depthwise, dilated, causal, grouped, and pointwise convolution without separate bespoke storage layouts.
-- [ ] Add MaxPool1d/2d and average pooling.
-- [ ] Define padding, stride, dilation, groups, channels-first/channels-last, and backward-pass conventions.
+- [x] Implement direct scalar Conv1d/Conv2d references, then im2col+GEMM paths.
+- [x] Support depthwise, dilated, causal, grouped, and pointwise convolution without separate bespoke storage layouts.
+- [x] Add MaxPool1d/2d and average pooling.
+- [x] Define padding, stride, dilation, groups, channels-first/channels-last, and backward-pass conventions.
 
 ### Recurrent networks
 
-- [ ] Add an LSTM cell and full-sequence driver.
-- [ ] Add BiLSTM, GRU, and a simple RNN using shared recurrent-state conventions.
-- [ ] Reuse existing Gated DeltaNet and short-convolution implementations rather than replacing them.
+- [x] Add an LSTM cell and full-sequence driver.
+- [x] Add BiLSTM, GRU, and a simple RNN using shared recurrent-state conventions.
+- [x] Reuse existing Gated DeltaNet and short-convolution implementations rather than replacing them.
 
 ### Attention
 
-- [ ] Add relative-position attention/bias.
-- [ ] Add online-softmax attention and sliding-window masks.
-- [ ] Add logit softcap and attention statistics pooling.
-- [ ] Extend existing attention interfaces where possible instead of introducing incompatible model-specific paths.
+- [x] Add relative-position attention/bias.
+- [x] Add online-softmax attention and sliding-window masks.
+- [x] Add logit softcap and attention statistics pooling.
+- [x] Extend existing attention interfaces where possible instead of introducing incompatible model-specific paths.
 
-**Stage completion:** forward outputs match independent references; trainable layers pass numerical-gradient specs; stateful/streaming behavior is explicit; small convolutional and recurrent tasks train end to end; CUDA claims require parity specs.
+**Stage completion:** complete. Forward outputs match independent references; trainable layers pass numerical-gradient specs; recurrent state behavior is explicit; small convolutional and recurrent tasks train end to end. New general layers and attention options are CPU-only; existing CUDA paths remain unchanged, and no new CUDA capability is advertised without parity specs.
 
 ## Stage 5: Inference breadth
 

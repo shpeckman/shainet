@@ -438,9 +438,9 @@ module SHAInet
       end
 
       # Returns im2col values with scatter-add backward propagation.
-      def im2col(kernel_shape : Array(Int32), stride : Int32 = 1, padding : Int32 = 0) : GradMatrix
+      def im2col(kernel_shape : Array(Int32), stride : Int32 = 1, padding : Int32 = 0, dilation : Int32 = 1) : GradMatrix
         source_shape = dimensions
-        tensor_result = to_tensor.im2col(kernel_shape, stride, padding)
+        tensor_result = to_tensor.im2col(kernel_shape, stride, padding, dilation)
         result_shape = tensor_result.shape
         result = GradMatrix.new(result_shape, tensor_result.to_flat_a, requires_grad?)
         result.parents = [self]
@@ -448,38 +448,47 @@ module SHAInet
         if result.requires_grad?
           result.backward_fn = -> do
             if out_grad = result.grad
-              gradient = Array(Float64).new(source_shape.product, 0.0)
-              batch = source_shape[0]
-              channels = source_shape[1]
-              spatial_shape = source_shape[2..]
-              output_spatial = kernel_shape.each_with_index.map { |kernel, axis| (spatial_shape[axis] + 2 * padding - kernel) // stride + 1 }.to_a
-              windows = output_spatial.product
-              kernel_size = kernel_shape.product
-              output_strides = SHAInet::SimpleMatrix.contiguous_strides(output_spatial)
-              kernel_strides = SHAInet::SimpleMatrix.contiguous_strides(kernel_shape)
-              batch.times do |b|
-                windows.times do |window|
-                  output_coords = output_spatial.each_with_index.map { |_dim, axis| (window // output_strides[axis]) % output_spatial[axis] }.to_a
-                  channels.times do |channel|
-                    kernel_size.times do |kernel_index|
-                      source = [b, channel]
-                      in_bounds = true
-                      kernel_shape.each_index do |axis|
-                        kernel_coord = (kernel_index // kernel_strides[axis]) % kernel_shape[axis]
-                        input_coord = output_coords[axis] * stride + kernel_coord - padding
-                        if input_coord < 0 || input_coord >= spatial_shape[axis]
-                          in_bounds = false
-                          break
-                        end
-                        source << input_coord
-                      end
-                      if in_bounds
-                        output_index = (b * windows + window) * channels * kernel_size + channel * kernel_size + kernel_index
-                        gradient[contiguous_offset(source, source_shape)] += out_grad[output_index]
-                      end
-                    end
-                  end
+              columns = SHAInet::SimpleMatrix.new(result_shape)
+              out_grad.each_with_index { |value, index| columns.data[index] = value.to_f32 }
+              gradient = columns.col2im(source_shape, kernel_shape, stride, padding, dilation)
+              accumulate_grad!(gradient.to_flat_a)
+            end
+          end
+        end
+        result
+      end
+
+      # :ditto:
+      def unfold(kernel_shape : Array(Int32), stride : Int32 = 1, padding : Int32 = 0, dilation : Int32 = 1) : GradMatrix
+        im2col(kernel_shape, stride, padding, dilation)
+      end
+
+      # Returns a generalized linear unit with gradients for both input halves.
+      def glu(axis : Int32 = 1, gate : SHAInet::ActivationFunction = SHAInet.sigmoid) : GradMatrix
+        source_shape = dimensions
+        tensor_result = SHAInet.glu(to_tensor, axis, gate)
+        result = GradMatrix.new(tensor_result.shape, tensor_result.to_flat_a, requires_grad?)
+        result.parents = [self]
+        result.set_non_leaf!
+        if result.requires_grad?
+          source = @data.dup
+          result.backward_fn = -> do
+            if out_grad = result.grad
+              gradient = Array(Float64).new(source.size, 0.0)
+              result_shape = result.dimensions
+              source_strides = SHAInet::SimpleMatrix.contiguous_strides(source_shape)
+              result_strides = SHAInet::SimpleMatrix.contiguous_strides(result_shape)
+              half = source_shape[axis] // 2
+              out_grad.each_with_index do |output_grad, index|
+                left = 0
+                source_shape.each_index do |source_axis|
+                  coord = (index // result_strides[source_axis]) % result_shape[source_axis]
+                  left += coord * source_strides[source_axis]
                 end
+                right = left + half * source_strides[axis]
+                activated = gate.call(source[right])
+                gradient[left] += output_grad * activated[0]
+                gradient[right] += output_grad * source[left] * activated[1]
               end
               accumulate_grad!(gradient)
             end
@@ -488,9 +497,42 @@ module SHAInet
         result
       end
 
-      # :ditto:
-      def unfold(kernel_shape : Array(Int32), stride : Int32 = 1, padding : Int32 = 0) : GradMatrix
-        im2col(kernel_shape, stride, padding)
+      # Returns bounded SiTU-GLU values with gradients for both input halves.
+      def situ_glu(axis : Int32 = 1, bound1 : Float64 = 3.0, bound2 : Float64 = 3.0) : GradMatrix
+        source_shape = dimensions
+        tensor_result = SHAInet.situ_glu(to_tensor, axis, bound1, bound2)
+        result = GradMatrix.new(tensor_result.shape, tensor_result.to_flat_a, requires_grad?)
+        result.parents = [self]
+        result.set_non_leaf!
+        if result.requires_grad?
+          source = @data.dup
+          result.backward_fn = -> do
+            if out_grad = result.grad
+              gradient = Array(Float64).new(source.size, 0.0)
+              result_shape = result.dimensions
+              source_strides = SHAInet::SimpleMatrix.contiguous_strides(source_shape)
+              result_strides = SHAInet::SimpleMatrix.contiguous_strides(result_shape)
+              half = source_shape[axis] // 2
+              out_grad.each_with_index do |output_grad, index|
+                left = 0
+                source_shape.each_index do |source_axis|
+                  coord = (index // result_strides[source_axis]) % result_shape[source_axis]
+                  left += coord * source_strides[source_axis]
+                end
+                right = left + half * source_strides[axis]
+                gate_value = source[left]
+                t = Math.tanh(gate_value / bound1)
+                sigmoid = 1.0 / (1.0 + Math.exp(-gate_value))
+                gated = bound1 * t * sigmoid
+                d_gate = (1.0 - t * t) * sigmoid + bound1 * t * sigmoid * (1.0 - sigmoid)
+                gradient[left] += output_grad * d_gate * bound2 * Math.tanh(source[right] / bound2)
+                gradient[right] += output_grad * gated * (1.0 - Math.tanh(source[right] / bound2) ** 2)
+              end
+              accumulate_grad!(gradient)
+            end
+          end
+        end
+        result
       end
 
       private def broadcast_binary(other : GradMatrix, operation : Symbol) : GradMatrix

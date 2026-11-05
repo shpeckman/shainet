@@ -13,9 +13,10 @@ module SHAInet
     property drop_percent : Int32
 
     def initialize(d_model : Int32, num_heads : Int32, ff_hidden : Int32,
-                   drop_percent : Int32 = 0)
+                   drop_percent : Int32 = 0, relative_position_bias : RelativePositionBias? = nil,
+                   logit_softcap : Float64? = nil, online_block_size : Int32? = nil)
       super(d_model, SHAInet.none)
-      @mha = MultiHeadAttention.new(d_model, num_heads)
+      @mha = MultiHeadAttention.new(d_model, num_heads, relative_position_bias, logit_softcap, online_block_size)
       @ffn = PositionWiseFF.new(d_model, ff_hidden)
       @norm1 = LayerNorm.new(d_model)
       @norm2 = LayerNorm.new(d_model)
