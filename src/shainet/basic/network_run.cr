@@ -1427,7 +1427,11 @@ module SHAInet
         # zero it and overwrite it mid-sample, corrupting the input/target.
       end
 
+      Training.clip_global_norm!(gradient_matrices, @clip_threshold)
       learning_rate = current_learning_rate
+      optimizer = optimizer_for(training_type)
+      fallback_optimizer = training_type.to_s == "muon" ? optimizer_for(:adamw) : optimizer
+      fallback_learning_rate = training_type.to_s == "muon" ? @alpha : learning_rate
 
       @hidden_layers.each do |layer|
         if layer.is_a?(MatrixLayer)
@@ -1435,23 +1439,25 @@ module SHAInet
             momentum: @momentum,
             beta1: @beta1, beta2: @beta2,
             epsilon: @epsilon, time_step: @time_step,
-            alpha: @alpha, weight_decay: @weight_decay)
+            alpha: @alpha, weight_decay: @weight_decay,
+            optimizer: optimizer)
         elsif layer.is_a?(EmbeddingLayer)
-          layer.apply_gradients(learning_rate)
+          layer.apply_gradients(fallback_learning_rate, fallback_optimizer)
         end
       end
 
       @output_layers.each do |layer|
         if layer.is_a?(MatrixLayer)
-          layer.update_weights(learning_rate, training_type,
+          layer.update_weights(fallback_learning_rate, training_type,
             momentum: @momentum,
             beta1: @beta1, beta2: @beta2,
             epsilon: @epsilon, time_step: @time_step,
-            alpha: @alpha, weight_decay: @weight_decay)
+            alpha: @alpha, weight_decay: @weight_decay,
+            optimizer: fallback_optimizer)
         end
       end
 
-      update_transformer_layers if @transformer_layers.present?
+      update_transformer_layers(training_type) if @transformer_layers.present?
 
       batch_error
     end
@@ -1516,21 +1522,66 @@ module SHAInet
     end
 
     def current_learning_rate
-      if @warmup_steps > 0 && @time_step < @warmup_steps
+      if schedule = @learning_rate_schedule
+        schedule.rate(@time_step)
+      elsif @warmup_steps > 0 && @time_step < @warmup_steps
         @learning_rate * (@time_step.to_f64 / @warmup_steps)
       else
         @learning_rate
       end
     end
 
-    def update_transformer_layers
+    def update_transformer_layers(training_type : Symbol | String = :sgdm)
       lr = current_learning_rate
+      optimizer = optimizer_for(training_type)
       @transformer_layers.each do |layer|
         case layer
-        when TransformerLayer then layer.apply_gradients(lr)
+        when TransformerLayer then layer.apply_gradients(lr, optimizer)
         when LlamaLayer       then layer.apply_gradients(lr)
         end
       end
+    end
+
+    private def optimizer_for(training_type : Symbol | String) : Training::Optimizer
+      kind = training_type.to_s
+      optimizer = @optimizers[kind]? || begin
+        created = case kind
+                  when "adam", "adamw"
+                    Training::AdamW.new(@beta1, @beta2, @epsilon, @weight_decay)
+                  when "rmsprop"
+                    Training::RMSprop.new
+                  when "adagrad"
+                    Training::Adagrad.new
+                  when "muon"
+                    Training::Muon.new(weight_decay: @weight_decay)
+                  when "sgd"
+                    Training::SGD.new
+                  else
+                    Training::SGD.new(@momentum)
+                  end
+        @optimizers[kind] = created
+        created
+      end
+      optimizer.weight_decay = @weight_decay if optimizer.is_a?(Training::AdamW)
+      optimizer
+    end
+
+    private def gradient_matrices : Array(SimpleMatrix | CudaMatrix)
+      gradients = [] of SimpleMatrix | CudaMatrix
+      (@hidden_layers + @output_layers).each do |layer|
+        case layer
+        when EmbeddingLayer
+          gradients << layer.gradients
+        when TransformerLayer
+          gradients.concat([layer.mha.g_w_q, layer.mha.g_w_k, layer.mha.g_w_v, layer.mha.g_w_o])
+          gradients.concat([layer.ffn.g_w1, layer.ffn.g_w2, layer.ffn.g_b1, layer.ffn.g_b2])
+          gradients.concat([layer.norm1.g_gamma, layer.norm1.g_beta, layer.norm2.g_gamma, layer.norm2.g_beta])
+        else
+          gradients << layer.g_w
+          gradients << layer.g_b
+        end
+      end
+      gradients
     end
 
     def validate_values(array : Array(Float64), location : String)

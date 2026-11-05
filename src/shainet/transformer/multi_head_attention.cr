@@ -514,28 +514,40 @@ module SHAInet
     end
 
     # GPU path for applying gradients
-    def apply_gradients(lr : Float64, device : CudaMatrix.class)
-      # Use in-place weight updates to eliminate matrix creation
-      @w_q.as(CudaMatrix).weight_update!(@g_w_q.as(CudaMatrix), lr)
-      @w_k.as(CudaMatrix).weight_update!(@g_w_k.as(CudaMatrix), lr)
-      @w_v.as(CudaMatrix).weight_update!(@g_w_v.as(CudaMatrix), lr)
-      @w_o.as(CudaMatrix).weight_update!(@g_w_o.as(CudaMatrix), lr)
-
-      # Clear gradients
+    def apply_gradients(lr : Float64, device : CudaMatrix.class, optimizer : Training::Optimizer? = nil)
+      update_parameter(@w_q, @g_w_q, lr, optimizer)
+      update_parameter(@w_k, @g_w_k, lr, optimizer)
+      update_parameter(@w_v, @g_w_v, lr, optimizer)
+      update_parameter(@w_o, @g_w_o, lr, optimizer)
       zero_gradients(CudaMatrix)
       update_transposes
     end
 
     # CPU path for applying gradients
-    def apply_gradients(lr : Float64, device : SimpleMatrix.class)
-      @w_q = @w_q.as(SimpleMatrix) - (@g_w_q.as(SimpleMatrix) * lr)
-      @w_k = @w_k.as(SimpleMatrix) - (@g_w_k.as(SimpleMatrix) * lr)
-      @w_v = @w_v.as(SimpleMatrix) - (@g_w_v.as(SimpleMatrix) * lr)
-      @w_o = @w_o.as(SimpleMatrix) - (@g_w_o.as(SimpleMatrix) * lr)
-
-      # Clear gradients
+    def apply_gradients(lr : Float64, device : SimpleMatrix.class, optimizer : Training::Optimizer? = nil)
+      update_parameter(@w_q, @g_w_q, lr, optimizer)
+      update_parameter(@w_k, @g_w_k, lr, optimizer)
+      update_parameter(@w_v, @g_w_v, lr, optimizer)
+      update_parameter(@w_o, @g_w_o, lr, optimizer)
       zero_gradients(SimpleMatrix)
       update_transposes
+    end
+
+    private def update_parameter(weights : SimpleMatrix | CudaMatrix, gradients : SimpleMatrix | CudaMatrix,
+                                 lr : Float64, optimizer : Training::Optimizer?)
+      if optimizer
+        if weights.is_a?(CudaMatrix)
+          optimizer.update!(weights, gradients.as(CudaMatrix), lr)
+        else
+          optimizer.update!(weights, gradients.as(SimpleMatrix), lr)
+        end
+      elsif weights.is_a?(CudaMatrix)
+        weights.weight_update!(gradients.as(CudaMatrix), lr)
+      else
+        weights.rows.times do |i|
+          weights.cols.times { |j| weights[i, j] -= lr * gradients.as(SimpleMatrix)[i, j] }
+        end
+      end
     end
 
     # GPU path for zeroing gradients

@@ -68,6 +68,10 @@ require "./shainet/transformer/gated_deltanet_block"
 require "./shainet/transformer/swiglu_ff"
 require "./shainet/transformer/moe_ff"
 require "./shainet/transformer/transformer_block"
+require "./shainet/training/learning_rate_schedule"
+require "./shainet/training/optimizers"
+require "./shainet/training/gradient_clipping"
+require "./shainet/training/gradient_check"
 require "./shainet/version"
 
 module SHAInet

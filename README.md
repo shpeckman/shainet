@@ -174,6 +174,28 @@ Views share their source storage, so mutations are visible through both. Use `va
 
 `Autograd::GradMatrix.from_tensor` creates an N-D autograd value. Reshape, permutation, broadcasting, arithmetic, reductions, selection, indexing, concat/stack, padding, masked selection, and im2col propagate gradients through `backward`.
 
+### Training schedules and optimizers
+
+Training supports SGD/momentum, AdamW, RMSprop, Adagrad, and experimental Muon. Shared optimizer state covers dense, embedding, and transformer parameters. Global-norm clipping uses `clip_threshold`:
+
+```crystal
+net.learning_rate_schedule = SHAInet::Training::LearningRateSchedule.warmup_cosine(
+  0.001, warmup_steps: 10, decay_steps: 100)
+net.clip_threshold = 1.0
+net.train(data: data, training_type: :rmsprop, epochs: 100)
+```
+
+Schedule factories provide `constant`, `warmup`, `cosine`, `step`, `exponential`, and `warmup_cosine`. Muon applies Newton–Schulz orthogonalized momentum to hidden matrices; embeddings, output heads, and vectors use conventional fallback optimization.
+
+Check an autograd operation against central finite differences:
+
+```crystal
+report = SHAInet::Training::GradientCheck.check(input) do |value|
+  value.broadcast_add(weights).sum
+end
+puts report[:max_absolute_error]
+```
+
 ### Load a GGUF model (Ollama blob or `.gguf` file)
 
 Point `HFLoader.load` at an Ollama model name, a blob, or a `.gguf` file. Q4_K and

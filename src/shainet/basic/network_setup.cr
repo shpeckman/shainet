@@ -60,8 +60,10 @@ module SHAInet
     property weight_decay : Float64
     property accumulation_steps : Int32
     property? mixed_precision : Bool
+    property learning_rate_schedule : Training::LearningRateSchedule?
 
     @cached_expanded_grad : SimpleMatrix | CudaMatrix?
+    @optimizers : Hash(String, Training::Optimizer) = {} of String => Training::Optimizer
 
     # First creates an empty shell of the entire network
     def initialize
@@ -96,6 +98,7 @@ module SHAInet
       @weight_decay = 0.0
       @accumulation_steps = 1
       @mixed_precision = false
+      @learning_rate_schedule = nil
 
       # Gradient transformation caching for efficient transformer backward pass
       @cached_seq_len = 0

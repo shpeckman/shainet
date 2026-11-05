@@ -219,12 +219,31 @@ module SHAInet
       d_input
     end
 
-    def apply_gradients(lr : Float64)
-      # Check device type and call appropriate method
-      if @w1.is_a?(CudaMatrix)
+    def apply_gradients(lr : Float64, optimizer : Training::Optimizer? = nil)
+      if optimizer
+        update_with_optimizer(optimizer, @w1, @g_w1, lr)
+        update_with_optimizer(optimizer, @w2, @g_w2, lr)
+        update_with_optimizer(optimizer, @b1, @g_b1, lr)
+        update_with_optimizer(optimizer, @b2, @g_b2, lr)
+        if @w1.is_a?(CudaMatrix)
+          apply_gradients_gpu(0.0)
+        else
+          apply_gradients_cpu(0.0)
+        end
+      elsif @w1.is_a?(CudaMatrix)
         apply_gradients_gpu(lr)
       else
         apply_gradients_cpu(lr)
+      end
+    end
+
+    private def update_with_optimizer(optimizer : Training::Optimizer,
+                                      weights : SimpleMatrix | CudaMatrix,
+                                      gradients : SimpleMatrix | CudaMatrix, lr : Float64)
+      if weights.is_a?(CudaMatrix)
+        optimizer.update!(weights, gradients.as(CudaMatrix), lr)
+      else
+        optimizer.update!(weights, gradients.as(SimpleMatrix), lr)
       end
     end
 

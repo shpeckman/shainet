@@ -107,17 +107,17 @@ Build shared N-D infrastructure before adding convolution, recurrent, audio, and
 
 Make optimization and diagnostics consistent across dense and transformer training.
 
-- [ ] Add linear warmup composed with cosine, step, and exponential decay schedules.
-- [ ] Add RMSprop and Adagrad.
-- [ ] Make AdamW's decoupled weight decay and optimizer state available consistently across applicable layer types.
-- [ ] Add global-norm gradient clipping alongside existing threshold clipping.
-- [ ] Add numerical gradient-checking utilities with configurable tolerances and deterministic sampling.
-- [ ] Integrate reusable autograd operations with training where practical rather than maintaining orphaned parallel implementations.
-- [ ] Add Muon with Newton–Schulz orthogonalization as an experimental optimizer for hidden matrices.
-- [ ] Keep embeddings, output heads, scalars, and vectors on a conventional optimizer when using Muon unless a tested strategy says otherwise.
-- [ ] Evaluate Muon variants only against tuned AdamW baselines and workload-specific measurements.
+- [x] Add linear warmup composed with cosine, step, and exponential decay schedules.
+- [x] Add RMSprop and Adagrad.
+- [x] Make AdamW's decoupled weight decay and optimizer state available consistently across applicable layer types.
+- [x] Add global-norm gradient clipping alongside existing threshold clipping.
+- [x] Add numerical gradient-checking utilities with configurable tolerances and deterministic sampling.
+- [x] Integrate reusable autograd operations with training where practical rather than maintaining orphaned parallel implementations.
+- [x] Add Muon with Newton–Schulz orthogonalization as an experimental optimizer for hidden matrices.
+- [x] Keep embeddings, output heads, scalars, and vectors on a conventional optimizer when using Muon unless a tested strategy says otherwise.
+- [x] Evaluate Muon variants only against tuned AdamW baselines and workload-specific measurements.
 
-**Stage completion:** optimizer updates match independent references; schedules and clipping have boundary specs; gradient checks cover representative layers; small training tasks converge; transformer and dense optimizer behavior is documented.
+**Stage completion:** complete. Optimizer updates match independent references; schedules and clipping have boundary specs; gradient checks cover representative layers; small training tasks converge; transformer and dense optimizer behavior is documented.
 
 ## Stage 4: General architectures
 

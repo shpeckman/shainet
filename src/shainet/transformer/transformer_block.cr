@@ -123,19 +123,16 @@ module SHAInet
       d_attn
     end
 
-    def apply_gradients(lr : Float64)
-      # Determine device type from weights
+    def apply_gradients(lr : Float64, optimizer : Training::Optimizer? = nil)
       if @weights.is_a?(CudaMatrix)
-        # GPU path
-        @ffn.apply_gradients(lr) # PositionWiseFF uses standard apply_gradients method
-        @mha.apply_gradients(lr, CudaMatrix)
+        @ffn.apply_gradients(lr, optimizer)
+        @mha.apply_gradients(lr, CudaMatrix, optimizer)
       else
-        # CPU path
-        @ffn.apply_gradients(lr) # PositionWiseFF uses standard apply_gradients method
-        @mha.apply_gradients(lr, SimpleMatrix)
+        @ffn.apply_gradients(lr, optimizer)
+        @mha.apply_gradients(lr, SimpleMatrix, optimizer)
       end
-      @norm1.apply_gradients(lr)
-      @norm2.apply_gradients(lr)
+      @norm1.apply_gradients(lr, optimizer)
+      @norm2.apply_gradients(lr, optimizer)
     end
 
     # Override MatrixLayer's update_weights to prevent conflicts

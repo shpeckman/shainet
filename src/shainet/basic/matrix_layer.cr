@@ -27,6 +27,10 @@ module SHAInet
     @v_w : SimpleMatrix | CudaMatrix? # Second moment estimate for weights
     @v_b : SimpleMatrix | CudaMatrix? # Second moment estimate for biases
 
+    @rmsprop_optimizer : Training::RMSprop? = nil
+    @adagrad_optimizer : Training::Adagrad? = nil
+    @muon_optimizer : Training::Muon? = nil
+
     def initialize(in_size : Int32, @size : Int32)
       @l_size = @size
       @activation_function = SHAInet.sigmoid
@@ -345,22 +349,45 @@ module SHAInet
                        momentum : Float64 = 0.0,
                        beta1 : Float64 = 0.9, beta2 : Float64 = 0.999,
                        epsilon : Float64 = 1e-8, time_step : Int32 = 1,
-                       alpha : Float64 = 0.001, weight_decay : Float64 = 0.0)
-      # update_weights is reachable WITHOUT this layer having run backward (the
-      # transformer training path does exactly that), so the gradients must be
-      # materialized here too, not only in backward. Applying all-zero gradients is
-      # the same no-op the eagerly-allocated version performed.
+                       alpha : Float64 = 0.001, weight_decay : Float64 = 0.0,
+                       optimizer : Training::Optimizer? = nil)
       materialize_gradients!
+      if optimizer
+        apply_optimizer(optimizer, @weights, @g_w, learning_rate)
+        apply_optimizer(optimizer, @biases, @g_b, learning_rate)
+        return
+      end
+
       case training_type.to_s
       when "sgdm"
         update_weights_sgd(learning_rate, momentum)
       when "adam", "adamw"
         update_weights_adam(alpha, beta1, beta2, epsilon, time_step, weight_decay, training_type.to_s == "adamw")
-      when "rprop"
-        # Rprop not yet implemented for matrix layers, fall back to SGD
-        update_weights_sgd(learning_rate, momentum)
+      when "rmsprop"
+        rmsprop = @rmsprop_optimizer ||= Training::RMSprop.new
+        apply_optimizer(rmsprop, @weights, @g_w, learning_rate)
+        apply_optimizer(rmsprop, @biases, @g_b, learning_rate)
+      when "adagrad"
+        adagrad = @adagrad_optimizer ||= Training::Adagrad.new
+        apply_optimizer(adagrad, @weights, @g_w, learning_rate)
+        apply_optimizer(adagrad, @biases, @g_b, learning_rate)
+      when "muon"
+        muon = @muon_optimizer ||= Training::Muon.new(weight_decay: weight_decay)
+        apply_optimizer(muon, @weights, @g_w, learning_rate)
+        apply_optimizer(muon, @biases, @g_b, learning_rate)
       else
         update_weights_sgd(learning_rate, momentum)
+      end
+    end
+
+    private def apply_optimizer(optimizer : Training::Optimizer,
+                                weights : SimpleMatrix | CudaMatrix,
+                                gradients : SimpleMatrix | CudaMatrix,
+                                learning_rate : Float64)
+      if weights.is_a?(CudaMatrix)
+        optimizer.update!(weights, gradients.as(CudaMatrix), learning_rate)
+      else
+        optimizer.update!(weights, gradients.as(SimpleMatrix), learning_rate)
       end
     end
 

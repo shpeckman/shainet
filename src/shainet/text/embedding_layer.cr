@@ -317,9 +317,23 @@ module SHAInet
     end
 
     # Update embeddings using stored gradients and clear them
-    def apply_gradients(lr : Float64)
+    def apply_gradients(lr : Float64, optimizer : Training::Optimizer? = nil)
       grads = @gradients
       return if grads.nil? # nothing was accumulated (e.g. inference) — nothing to apply
+
+      if optimizer
+        if @embeddings.is_a?(CudaMatrix) && grads.is_a?(CudaMatrix)
+          optimizer.update!(@embeddings.as(CudaMatrix), grads.as(CudaMatrix), lr)
+        else
+          optimizer.update!(@embeddings.as(SimpleMatrix), grads.as(SimpleMatrix), lr)
+        end
+        if grads.is_a?(CudaMatrix)
+          grads.zero!
+        else
+          grads.data.fill(0.0_f32)
+        end
+        return
+      end
 
       if CUDA.fully_available? && @embeddings.is_a?(CudaMatrix) && grads.is_a?(CudaMatrix)
         e_ptr = @embeddings.as(CudaMatrix).device_ptr
